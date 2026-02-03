@@ -1,4 +1,4 @@
-Gene Correlation Explorer
+# Gene Correlation Explorer
 
 An interactive Shiny application for exploring gene–gene correlation structure in Escherichia coli using a large RNA-seq compendium.
 
@@ -6,7 +6,7 @@ This tool enables users to query a gene of interest, identify highly correlated 
 
 ------------------------------------------------------------
 
-Data Source
+## Data Source
 
 This application relies on data from:
 
@@ -19,7 +19,7 @@ This tool would not be possible without the above work.
 
 ------------------------------------------------------------
 
-System Requirements
+## System Requirements
 
 R version 4.2 or higher
 
@@ -34,45 +34,45 @@ Supported operating systems:
 
 ------------------------------------------------------------
 
-Installation and Setup
+## Installation and Setup
 
 1. Download the application
 
-Download or clone this repository to your local machine.
+    Download or clone this repository to your local machine.
 
 2. Download required data files
 
-Due to size constraints, large data files are not included in the repository.
+    Due to size constraints, large data files are not included in the repository.
 
-Download the required files from the following Box folder:
+    Download the required files from the following Box folder:
 
-Temporary data download (Box):
-https://cornell.box.com/s/xex2urj4ot6zmworcaq63vn4tbnp5qw9
+    Temporary data download (Box):
+    https://cornell.box.com/s/xex2urj4ot6zmworcaq63vn4tbnp5qw9
 
-After downloading, place the files into the data directory so that it contains:
+    After downloading, place the files into the data directory so that it contains:
 
-data/
-  correlation_matrix_all_genes.rds
-  Supplementary_Table_2.txt
+    data/
+      correlation_matrix_all_genes.rds
+      Supplementary_Table_2.txt
 
 Note: These data are provided temporarily via Box and will be archived on a permanent repository (for example, Zenodo) upon publication.
 
 3. Open the project
 
-Double-click the file:
-GeneCorrelationExplorer.Rproj
+    Double-click the file:
+    GeneCorrelationExplorer.Rproj
 
-This ensures the correct working directory.
+    This ensures the correct working directory.
 
 4. Launch the application
 
-Open any script in RStudio and click "Run App".
+    Open any script in RStudio and click "Run App".
 
-The graphical user interface will automatically open in your web browser.
+    The graphical user interface will automatically open in your web browser.
 
 ------------------------------------------------------------
 
-Using the Application
+## Using the Application
 
 1. Enter a gene of interest (for example, xxxX or xxx)
 
@@ -86,7 +86,7 @@ Using the Application
 
 ------------------------------------------------------------
 
-Output
+## Output
 
 The application generates:
 
@@ -102,16 +102,17 @@ These outputs can be saved for downstream analysis or publication.
 
 ------------------------------------------------------------
 
-Notes
+## Notes
 
-Required R packages are installed automatically on first run if missing.
+- Required R packages are installed automatically on first run if missing.
 
-Large correlation matrices are loaded locally; sufficient RAM is recommended.
+- Large correlation matrices are loaded locally; sufficient RAM is recommended.
 
-For best performance, run the app from the project root via the RStudio project file.
+- For best performance, run the app from the project root via the RStudio project file.
 
 ------------------------------------------------------------
 
-Questions and Issues
+## Questions and Issues
 
 For questions, issues, or suggestions, please contact the authors or open an issue in the repository.
+
