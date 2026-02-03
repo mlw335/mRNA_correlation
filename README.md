@@ -33,11 +33,9 @@ Linux
 
 ## Installation & Setup
 1. Download the application
-
   Download or clone this repository to your local machine.
 
 2. Download required data files
-
   Due to size constraints, large data files are not included in the repository.
 
 Download the required files from the following Box folder:
@@ -117,5 +115,6 @@ For best performance, run the app from the project root via the .Rproj file.
 ## Questions & Issues
 
 For questions, issues, or suggestions, please contact the authors or open an issue in the repository.
+
 
 
