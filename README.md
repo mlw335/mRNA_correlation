@@ -1,6 +1,6 @@
 # Gene Correlation Explorer
 
-An interactive Shiny application for exploring gene–gene correlation structure in Escherichia coli using a large RNA-seq compendium.
+An interactive Shiny application for exploring gene–gene correlation structure in Escherichia coli using a large RNA-seq dataset.
 
 This tool enables users to query a gene of interest, identify highly correlated partners, and visualize correlation neighborhoods as an interactive heatmap with downloadable results.
 
@@ -55,7 +55,7 @@ Supported operating systems:
       correlation_matrix_all_genes.rds
       Supplementary_Table_2.txt
 
-Note: These data are provided temporarily via Box and will be archived on a permanent repository (for example, Zenodo) upon publication.
+Note: These data are provided temporarily via Box and will be archived on a permanent repository upon publication.
 
 3. Open the project
 
@@ -130,5 +130,6 @@ analyses is appreciated.
 ## Questions and Issues
 
 For questions, issues, or suggestions, please contact the authors or open an issue in the repository.
+
 
 
