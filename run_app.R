@@ -13,7 +13,8 @@ required_packages <- c(
   "pheatmap",
   "DT",
   "svglite",
-  "htmltools"
+  "htmltools",
+  "zip"
 )
 
 installed <- rownames(installed.packages())

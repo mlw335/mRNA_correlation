@@ -12,6 +12,7 @@ library(pheatmap)
 library(DT)
 library(svglite)
 library(htmltools)
+library(zip)
 
 # ---------------------------
 # Resolve project paths
@@ -99,37 +100,169 @@ ui <- fluidPage(
   
   sidebarLayout(
     sidebarPanel(
-      textInput("geneX", "Enter Gene of Interest:", value = "geneX"),
+      checkboxInput("batch", "Batch input mode", value = FALSE),
+      
+      conditionalPanel(
+        condition = "!input.batch",
+        textInput("geneX", "Enter Gene of Interest:", value = "geneX")
+      ),
+      
+      conditionalPanel(
+        condition = "input.batch",
+        fileInput(
+          "batch_file",
+          "Upload gene list (one gene per line)",
+          accept = c(".txt", ".csv")
+        )
+      ),
+      
       textInput("GOIs", "Additional Genes (comma-separated):", value = ""),
-      sliderInput("cor_threshold", "Correlation cutoff:",
-                  min = 0, max = 1, value = 0.5, step = 0.05),
-      numericInput("n_threshold", "Minimum n-value (overlaps):",
-                   value = 100, min = 1),
-      numericInput("primary_n", "Top primary hits:",
-                   value = 25, min = 1),
-      checkboxInput("heatmap_num", "Include Values in Heatmap?",
-                    value = TRUE),
       
-      actionButton("run", "Run Analysis"),
+      sliderInput(
+        "cor_threshold",
+        "Correlation cutoff:",
+        min = 0, max = 1, value = 0.5, step = 0.05
+      ),
       
-      div(class = "zoom_controls",
-          actionButton("zoom_in", "+"),
-          actionButton("zoom_out", "−"),
-          actionButton("zoom_reset", "reset")
-      )
+      numericInput(
+        "n_threshold",
+        "Minimum n-value (overlaps):",
+        value = 100, min = 1
+      ),
+      
+      numericInput(
+        "primary_n",
+        "Top primary hits:",
+        value = 25, min = 1
+      ),
+      
+      checkboxInput(
+        "heatmap_num",
+        "Include values in heatmap?",
+        value = TRUE
+      ),
+      
+      actionButton("run", "Run Analysis")
     ),
     
     mainPanel(
-      h6("Data from Tjaden, B. (2023)... https://doi.org/10.1080/15476286.2023.2189331"),
-      h3("Correlation Heatmap (pheatmap → SVG, zoomable)"),
-      uiOutput("heatmap_svg_ui"),
-      downloadButton("download_heatmap", "Download Heatmap (SVG)"),
-      h3("Top Correlated Genes"),
-      DTOutput("corTable"),
-      downloadButton("download_table", "Download Table (CSV)")
+      h6(
+        "Data from Tjaden, B. (2023)... ",
+        "https://doi.org/10.1080/15476286.2023.2189331"
+      ),
+      
+      conditionalPanel(
+        condition = "!input.batch",
+        h3("Correlation Heatmap"),
+        uiOutput("heatmap_svg_ui"),
+        downloadButton("download_heatmap", "Download Heatmap (SVG)"),
+        h3("Top Correlated Genes"),
+        DTOutput("corTable"),
+        downloadButton("download_table", "Download Table (CSV)")
+      ),
+      
+      conditionalPanel(
+        condition = "input.batch",
+        h3("Batch analysis"),
+        downloadButton("download_batch", "Download batch results (ZIP)")
+      )
     )
   )
 )
+  
+run_single_gene <- function(
+    geneX,
+    cor_mat_all,
+    df,
+    GOIs,
+    cor_threshold,
+    n_threshold,
+    primary_n,
+    show_numbers = TRUE
+) {
+  
+  geneX <- trimws(geneX)
+  
+  # ---- validation ----
+  if (!geneX %in% rownames(cor_mat_all)) {
+    stop(paste0("Gene '", geneX, "' not found in correlation matrix"))
+  }
+  
+  # ---- reshape expression table ----
+  df_long <- df %>%
+    pivot_longer(
+      cols = -(1:7),
+      names_to = "Condition",
+      values_to = "Expression"
+    ) %>%
+    select(Name, Condition, Expression)
+  
+  df_wide <- df_long %>%
+    pivot_wider(names_from = Name, values_from = Expression)
+  
+  # ---- compute overlaps ----
+  df_wide_clean <- df_wide %>%
+    filter(!is.na(.data[[geneX]]))
+  
+  numeric_cols <- df_wide_clean %>%
+    select(-Condition) %>%
+    mutate(across(
+      everything(),
+      ~ suppressWarnings(as.numeric(.x))
+    ))
+  
+  cor_with_geneX <- cor_mat_all[geneX, ]
+  cor_with_geneX <- cor_with_geneX[names(cor_with_geneX) != geneX]
+  
+  n_with_geneX <- colSums(
+    !is.na(numeric_cols) & !is.na(numeric_cols[[geneX]])
+  )
+  n_with_geneX <- n_with_geneX[names(n_with_geneX) != geneX]
+  
+  common_genes <- intersect(
+    names(cor_with_geneX),
+    names(n_with_geneX)
+  )
+  
+  correlation_df <- tibble(
+    Gene = common_genes,
+    Correlation_with_geneX = as.numeric(cor_with_geneX[common_genes]),
+    n_with_geneX = as.integer(n_with_geneX[common_genes])
+  )
+  
+  # ---- filter significant hits ----
+  significant_hits <- correlation_df %>%
+    filter(!is.na(Correlation_with_geneX)) %>%
+    filter(abs(Correlation_with_geneX) >= cor_threshold) %>%
+    filter(n_with_geneX >= n_threshold) %>%
+    arrange(desc(abs(Correlation_with_geneX)))
+  
+  # ---- build heatmap matrix ----
+  heatmap_genes <- unique(
+    c(geneX, head(significant_hits$Gene, primary_n), GOIs)
+  )
+  
+  heatmap_genes <- heatmap_genes[
+    heatmap_genes %in% rownames(cor_mat_all)
+  ]
+  
+  if (length(heatmap_genes) < 2) {
+    stop("Not enough genes to construct heatmap")
+  }
+  
+  cor_mat <- cor_mat_all[
+    heatmap_genes,
+    heatmap_genes,
+    drop = FALSE
+  ]
+  
+  # ---- return results ----
+  list(
+    table = significant_hits,
+    heatmap_matrix = cor_mat
+  )
+}
+
 
 # ---------------------------
 # SERVER
@@ -142,6 +275,7 @@ server <- function(input, output, session) {
   cor_mat_rv <- reactiveVal(NULL)
   heatmap_svg <- reactiveVal(NULL)
   significant_hits_rv <- reactiveVal(NULL)
+  batch_results_rv <- reactiveVal(NULL)
   
   # ---------------------------
   # Lazy loader for large matrix
@@ -158,151 +292,101 @@ server <- function(input, output, session) {
     
     withProgress(message = "Running analysis...", value = 0, {
       
-      # ---- load matrix only when needed ----
       cor_mat_all <- load_matrix()
       
-      incProgress(0.1, detail = "Reshaping expression table")
+      GOIs <- strsplit(input$GOIs, ",")[[1]] |> trimws()
+      GOIs <- GOIs[GOIs != ""]
       
-      df_long <- df %>%
-        pivot_longer(
-          cols = -(1:7),
-          names_to = "Condition",
-          values_to = "Expression"
-        ) %>%
-        select(Name, Condition, Expression)
+      params <- list(
+        cor_threshold = input$cor_threshold,
+        n_threshold   = input$n_threshold,
+        primary_n     = input$primary_n,
+        show_numbers = input$heatmap_num
+      )
       
-      df_wide <- df_long %>%
-        pivot_wider(names_from = Name, values_from = Expression)
-      
-      geneX <- trimws(input$geneX)
-      GOIs  <- strsplit(input$GOIs, ",")[[1]] |> trimws()
-      GOIs  <- GOIs[GOIs != ""]
-      
-      cor_threshold <- input$cor_threshold
-      n_threshold   <- input$n_threshold
-      primary_n     <- input$primary_n
-      
-      # ---- validation ----
-      if (!geneX %in% rownames(cor_mat_all)) {
-        showNotification(
-          paste0("geneX '", geneX, "' not found in correlation matrix."),
-          type = "error"
-        )
-        heatmap_svg(NULL)
-        significant_hits_rv(NULL)
-        return(NULL)
-      }
-      
-      missing_gois <- setdiff(GOIs, rownames(cor_mat_all))
-      if (length(missing_gois) > 0) {
-        showNotification(
-          paste(
-            "Some GOIs not found and will be ignored:",
-            paste(missing_gois, collapse = ", ")
+      if (!input$batch) {
+        # --------------------
+        # Single-gene mode
+        # --------------------
+        
+        geneX <- trimws(input$geneX)
+        
+        res <- tryCatch(
+          run_single_gene(
+            geneX,
+            cor_mat_all,
+            df,
+            GOIs,
+            params$cor_threshold,
+            params$n_threshold,
+            params$primary_n,
+            params$show_numbers
           ),
-          type = "warning"
+          error = function(e) {
+            showNotification(e$message, type = "error")
+            return(NULL)
+          }
         )
-        GOIs <- intersect(GOIs, rownames(cor_mat_all))
-      }
-      
-      incProgress(0.2, detail = "Computing n-overlaps")
-      
-      df_wide_clean <- df_wide %>%
-        filter(!is.na(.data[[geneX]]))
-      
-      numeric_cols <- df_wide_clean %>%
-        select(-Condition) %>%
-        mutate(across(everything(),
-                      ~ suppressWarnings(as.numeric(.x))))
-      
-      cor_with_geneX_all <- cor_mat_all[geneX, ]
-      cor_with_geneX_all <- cor_with_geneX_all[
-        names(cor_with_geneX_all) != geneX
-      ]
-      
-      n_with_geneX <- colSums(
-        !is.na(numeric_cols) & !is.na(numeric_cols[[geneX]])
-      )
-      n_with_geneX <- n_with_geneX[
-        names(n_with_geneX) != geneX
-      ]
-      
-      common_genes <- intersect(
-        names(cor_with_geneX_all),
-        names(n_with_geneX)
-      )
-      
-      correlation_df <- tibble(
-        Gene = common_genes,
-        Correlation_with_geneX = as.numeric(
-          cor_with_geneX_all[common_genes]
-        ),
-        n_with_geneX = as.integer(
-          n_with_geneX[common_genes]
+        
+        if (is.null(res)) return()
+        
+        significant_hits_rv(res$table)
+        
+        # render SVG
+        svg_file <- file.path(tempdir(), paste0("heatmap_", Sys.getpid(), ".svg"))
+        svglite::svglite(svg_file, width = 18, height = 18)
+        pheatmap::pheatmap(
+          res$heatmap_matrix,
+          clustering_distance_rows = "euclidean",
+          clustering_method = "ward.D2",
+          display_numbers = isTRUE(params$show_numbers),
+          main = paste0("Neighborhood of ", geneX)
         )
-      )
-      
-      incProgress(0.2, detail = "Filtering significant hits")
-      
-      significant_hits <- correlation_df %>%
-        filter(!is.na(Correlation_with_geneX)) %>%
-        filter(abs(Correlation_with_geneX) >= cor_threshold) %>%
-        filter(n_with_geneX >= n_threshold) %>%
-        arrange(desc(abs(Correlation_with_geneX)))
-      
-      significant_hits_rv(significant_hits)
-      
-      incProgress(0.2, detail = "Building heatmap matrix")
-      
-      heatmap_genes <- unique(
-        c(geneX, head(significant_hits$Gene, primary_n), GOIs)
-      )
-      heatmap_genes <- heatmap_genes[
-        heatmap_genes %in% rownames(cor_mat_all)
-      ]
-      
-      if (length(heatmap_genes) < 2) {
-        heatmap_svg(NULL)
-        showNotification("Not enough genes to plot heatmap.",
-                         type = "warning")
-        return(NULL)
+        dev.off()
+        
+        heatmap_svg(paste(readLines(svg_file), collapse = "\n"))
+        
+      } else {
+        # --------------------
+        # Batch mode
+        # --------------------
+        
+        req(input$batch_file)
+        
+        genes <- readLines(input$batch_file$datapath, warn = FALSE)
+        genes <- trimws(genes)
+        genes <- genes[genes != ""]
+        genes <- unique(genes)
+        
+        n_genes <- length(genes)
+        results <- vector("list", n_genes)
+        names(results) <- genes
+        
+        for (i in seq_along(genes)) {
+          g <- genes[i]
+          
+          incProgress(
+            1 / n_genes,
+            detail = paste("Processing", g)
+          )
+          
+          results[[g]] <- tryCatch(
+            run_single_gene(
+              g,
+              cor_mat_all,
+              df,
+              GOIs,
+              params$cor_threshold,
+              params$n_threshold,
+              params$primary_n,
+              params$show_numbers
+            ),
+            error = function(e) NULL
+          )
+        }
+        
+        batch_results_rv(results)
       }
-      
-      cor_mat <- cor_mat_all[
-        heatmap_genes,
-        heatmap_genes,
-        drop = FALSE
-      ]
-      
-      incProgress(0.2, detail = "Rendering pheatmap to SVG")
-      
-      svg_file <- file.path(
-        tempdir(),
-        paste0("heatmap_", Sys.getpid(), ".svg")
-      )
-      
-      svglite::svglite(svg_file, width = 18, height = 18)
-      
-      pheatmap::pheatmap(
-        cor_mat,
-        clustering_distance_rows = "euclidean",
-        clustering_method = "ward.D2",
-        display_numbers = isTRUE(input$heatmap_num),
-        main = paste0(
-          "Neighborhood of ", geneX,
-          "\nCorrelation Threshold = ", cor_threshold
-        ),
-        fontsize = 10,
-        fontsize_number = 8,
-        border_color = NA
-      )
-      
-      dev.off()
-      
-      heatmap_svg(
-        paste(readLines(svg_file, warn = FALSE),
-              collapse = "\n")
-      )
     })
   })
   
@@ -355,6 +439,54 @@ server <- function(input, output, session) {
                 file, row.names = FALSE)
     }
   )
-}
+  
+  output$download_batch <- downloadHandler(
+    filename = function() {
+      paste0("GeneCorrelationExplorer_batch_", Sys.Date(), ".zip")
+    },
+    content = function(file) {
+      
+      results <- batch_results_rv()
+      req(results)
+      
+      tmpdir <- tempdir()
+      tables_dir   <- file.path(tmpdir, "tables")
+      heatmaps_dir <- file.path(tmpdir, "heatmaps")
+      
+      dir.create(tables_dir, showWarnings = FALSE)
+      dir.create(heatmaps_dir, showWarnings = FALSE)
+      
+      for (g in names(results)) {
+        res <- results[[g]]
+        if (is.null(res)) next
+        
+        write.csv(
+          res$table,
+          file.path(tables_dir, paste0(g, "_correlations.csv")),
+          row.names = FALSE
+        )
+        
+        svglite::svglite(
+          file.path(heatmaps_dir, paste0(g, "_heatmap.svg")),
+          width = 8,
+          height = 8
+        )
+        pheatmap::pheatmap(res$heatmap_matrix)
+        dev.off()
+      }
+      
+      old_wd <- getwd()
+      on.exit(setwd(old_wd), add = TRUE)
+      setwd(tmpdir)
+      
+      zip::zip(
+        zipfile = file,
+        files = c(
+          file.path("tables", list.files("tables")),
+          file.path("heatmaps", list.files("heatmaps"))
+        )
+      )
+    }
+  )}
 
 shinyApp(ui = ui, server = server)
