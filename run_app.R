@@ -14,7 +14,9 @@ required_packages <- c(
   "DT",
   "svglite",
   "htmltools",
-  "zip"
+  "zip",
+  "ggrepel",
+  "forcats"
 )
 
 installed <- rownames(installed.packages())

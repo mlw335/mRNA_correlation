@@ -13,6 +13,8 @@ library(DT)
 library(svglite)
 library(htmltools)
 library(zip)
+library(ggrepel)
+library(forcats)
 
 # ---------------------------
 # Resolve project paths
@@ -31,10 +33,15 @@ supp_table_path <- file.path(
   "Supplementary_Table_2.txt"
 )
 
+uniprot_path <- file.path(
+  data_dir,
+  "uniprotkb_proteome_UP000000625_2026_03_19.tsv"
+)
+
 # ---------------------------
 # Fail fast if data missing
 # ---------------------------
-required_files <- c(cor_mat_path, supp_table_path)
+required_files <- c(cor_mat_path, supp_table_path, uniprot_path)
 missing <- required_files[!file.exists(required_files)]
 
 if (length(missing) > 0) {
@@ -62,8 +69,309 @@ df <- read.delim(
   fill = TRUE
 )
 
+uniprot_to_function <- readr::read_tsv(
+  uniprot_path,
+  show_col_types = FALSE
+)
+
+# ---------------------------
+# Build GO lookup table once
+# ---------------------------
+unique_GO <- uniprot_to_function %>%
+  tidyr::separate_rows(`Gene Ontology (biological process)`, sep = ";\\s*") %>%
+  dplyr::pull(`Gene Ontology (biological process)`) %>%
+  unique()
+
+go_df <- tibble(go_term = unique_GO) %>%
+  filter(!is.na(go_term), go_term != "") %>%
+  mutate(
+    go_term = str_remove(go_term, "\\s*\\[GO:\\d+\\]$"),
+    go_group = case_when(
+      
+      # --- nucleotide metabolism ---
+      str_detect(go_term, "purine|pyrimidine|nucleotide|nucleoside|nucleobase|adenosine|guanosine|inosine|xanthosine|cytosine|uracil|uridine|thymine|thymidine|adenine|guanine|hypoxanthine|UMP|GMP|IMP|XMP|CMP|TMP|TTP|dATP|dTTP|UTP|CTP|ADP|dTMP|salvage|deoxycytidine|UDP|TDP|GTP|AMP") ~ "Nucleotide metabolism",
+      
+      # --- protein homeostasis ---
+      str_detect(go_term, "protein (catabolic|polymerization|stabilization|destabilization|folding|refolding|assembly|targeting|insertion|secretion|trimerization|tetramerization|oligomerization|lipoylation|glycosylation|methylation|adenylylation)|proteolysis|peptide catabolic|peptide metabolic|chaperone|zymogen activation|oligomerization|trimerization|tetramerization|hexamerization|protein complex assembly|protein processing|signal peptide processing|glycosylation|lipoylation|protein repair|protein maturation|protein unfolding|protein unfolding|protein quality|protein autoprocessing|protein localization|denaturation|unfolded protein|protein de") ~ "Protein homeostasis",
+      
+      # --- energy metabolism ---
+      str_detect(go_term, "electron transport chain|respiration|oxidative phosphorylation|ATP synthesis|hydrogen metabolic process|respiratory chain|generation of precursor metabolites and energy") ~ "Energy metabolism",
+      
+      # --- carbon metabolism ---
+      str_detect(go_term, "glycolysis|gluconeogenesis|pentose|TCA|tricarboxylic acid|fermentation|carbon fixation|carbon utilization|glucose|galactose|ribose|fucose|arabinose|maltose|lactose|mannitol|fructose|glycerol|pyruvate|acetate|acetyl-CoA|propionate|succinyl-CoA|2-oxoglutarate|glyoxylate|succinate|citrate|carbohydrate|hexose|monosaccharide|oligosaccharide|polysaccharide|glucarate|glucuronate|galactarate|galactonate|galacturonate|trehalose|cellobiose|xylan|pectin|gluconate|glucan|glycogen|mannose|rhamnose|sorbitol|melibiose|inositol|allantoin|ascorbic acid|tartrate|galactitol|allose|glycolate|lactate|ethanol|acetaldehyde|ketone|carboxylic acid|organic acid|dicarboxylic acid|monocarboxylic acid|aldonic acid|cyanate|organic phosphonate|aminophosphonate|N-acetylglucosamine|N-acetylmuramic acid|N-acetylmannosamine|N-acetylneuraminate|diacetylchitobiose|chitin|xylose|lyxose|glycol|malate|fumerate|xylulose") ~ "Carbon metabolism",
+      
+      # --- cofactor / vitamin metabolism ---
+      str_detect(go_term, "heme|porphyrin|cytochrome|quinone|ubiquinone|menaquinone|NAD|NADP|FAD|FMN|lipoate|molybdopterin|vitamin|cofactor|prosthetic group|siderophore|enterobactin|thiamine|folic acid|tetrahydrofolate|dihydrofolate|pteridine|cobalamin|riboflavin|pyridox|coenzyme A|pantothenate|isoprenoid|terpenoid|polyprenol|ferredoxin|glutathione") ~ "Cofactor / vitamin metabolism",
+      
+      # --- ion / homeostasis ---
+      str_detect(go_term, "magnesium|iron|zinc|copper|manganese|nickel|cadmium|cobalt|selenium|molybdate|potassium|phosphate|phosphorus|sulfate|sulfur compound|ion homeostasis|membrane potential|cation|homeostasis") ~ "Ion homeostasis / ion response",
+      
+      # --- transport ---
+      str_detect(go_term, "transport|import|export") ~ "Transport",
+      
+      # --- transcription ---
+      str_detect(go_term, "transcription|gene expression") ~ "Transcription",
+      
+      # --- DNA maintenance ---
+      str_detect(go_term, "DNA replication|DNA repair|recombination|translesion|SOS response|chromosome|DNA damage|DNA integration|transposition|transformation|base-excision repair|double-strand break repair|interstrand cross-link repair|mismatch|plasmid partitioning|sister chromatid cohesion|DNA protection|CRISPR|DNA|photoreactive repair") ~ "DNA maintenance|methylation|plasmid",
+      
+      
+      # --- translation / RNA biology ---
+      str_detect(go_term, "translation|ribosome|ribosomal|tRNA|rRNA|mRNA|RNA processing|RNA modification|RNA methylation|RNA capping|ncRNA|pseudouridine|endoribonuclease|RNA metabolic process|RNA") ~ "Translation / RNA biology",
+      
+      # --- motility ---
+      str_detect(go_term, "flagell|chemotaxis|motility|aerotaxis|thermotaxis|pilus") ~ "Motility / taxis",
+      
+      # --- cell envelope ---
+      str_detect(go_term, "cell wall|peptidoglycan|outer membrane|lipopolysaccharide|capsule|membrane assembly|membrane organization|periplasmic space organization|lipoprotein|cellulose|biofilm|cell shape|cell morphogenesis|cell growth|cell size|division|septum|cytokinesis|curli|amyloid fibril|O antigen|common antigen|adhesion|cell killing|autolysis|ring assembly|growth|osmosensory|cytoskeleton|invagination|cell tip|colanic acid") ~ "Cell envelope",
+      
+      # --- lipid metabolism ---
+      str_detect(go_term, "fatty acid|lipid|phospholipid|cardiolipin|lipid A|phosphatid|acyl-CoA|butyryl-CoA|poly-hydroxybutyrate|steroid") ~ "Lipid metabolism",
+      
+      # --- amino acid metabolism ---
+      str_detect(go_term, "amino acid|arginine|lysine|methionine|threonine|serine|glycine|tryptophan|tyrosine|histidine|cysteine|glutamate|aspartate|proline|alanine|valine|leucine|isoleucine|phenylalanine|ornithine|putrescine|spermidine|spermine|taurine|GABA|asparagine|glutamine|amine metabolic|biogenic amine|sulfur utilization|gamma-aminobutyric acid|nitrate|nitrite|ammonia|urea|amine|nitrogen utilization") ~ "Amino acid metabolism",
+      
+      
+      # --- stress / response ---
+      str_detect(go_term, "stress|response to|detoxification|starvation|oxidative|heat|cold|temperature|osmotic|hypotonic|hyperosmotic|acidic pH|alkaline pH|radiation|antibiotic|xenobiotic|toxic substance|nitric oxide|hydrogen peroxide|superoxide|defense|phage shock|dormancy|programmed cell death|symbiotic interaction|virus|viral|toxin|stringent") ~ "Stress / environmental response",
+      
+      # --- signaling ---
+      str_detect(go_term, "signal transduction|phosphorelay|phosphorylation|autophosphorylation|cAMP|quorum sensing|sensory|detection") ~ "Signal transduction / signaling",
+      
+      
+      TRUE ~ "Other"
+    )
+  )
+
 # ---------------------------
 # Large matrix will be loaded lazily in server()
+# ---------------------------
+
+# ---------------------------
+# GO helper functions
+# ---------------------------
+build_go_analysis_df <- function(corr_df, uniprot_to_function, go_df) {
+  
+  uniprot_small <- uniprot_to_function %>%
+    transmute(
+      Gene = `Gene Names (primary)`,
+      go_raw = `Gene Ontology (biological process)`
+    ) %>%
+    filter(!is.na(Gene), Gene != "")
+  
+  corr_df %>%
+    left_join(uniprot_small, by = "Gene") %>%
+    separate_rows(go_raw, sep = ";\\s*") %>%
+    mutate(
+      go_term = stringr::str_trim(stringr::str_remove(go_raw, "\\s*\\[GO:\\d+\\]$")),
+      go_term = na_if(go_term, "")
+    ) %>%
+    left_join(go_df, by = "go_term") %>%
+    mutate(go_group = dplyr::coalesce(go_group, "Other"))
+}
+
+annotate_with_go <- function(df, uniprot_to_function, go_df) {
+  df %>%
+    left_join(
+      uniprot_to_function %>%
+        transmute(
+          Gene = `Gene Names (primary)`,
+          go_raw = `Gene Ontology (biological process)`
+        ),
+      by = "Gene"
+    ) %>%
+    separate_rows(go_raw, sep = ";\\s*") %>%
+    mutate(
+      go_term = stringr::str_remove(go_raw, "\\s*\\[GO:\\d+\\]$"),
+      go_term = stringr::str_trim(go_term)
+    ) %>%
+    left_join(go_df, by = "go_term")
+}
+
+goAnalysisModuleUI <- function(id) {
+  ns <- NS(id)
+  
+  tagList(
+    fluidRow(
+      column(
+        3,
+        selectInput(
+          ns("analysis_mode"),
+          "Analysis mode",
+          choices = c(
+            "Continuous" = "continuous",
+            "Threshold enrichment" = "threshold"
+          ),
+          selected = "continuous"
+        )
+      ),
+      column(
+        3,
+        numericInput(
+          ns("threshold"),
+          "GO threshold",
+          value = 0.25,
+          step = 0.01
+        )
+      ),
+      column(
+        3,
+        numericInput(
+          ns("min_group_size"),
+          "Minimum GO group size",
+          value = 5,
+          min = 1,
+          step = 1
+        )
+      ),
+      column(
+        3,
+        checkboxInput(ns("drop_other"), "Hide Other", value = FALSE)
+      )
+    ),
+    
+    tabsetPanel(
+      tabPanel("GO summary", DTOutput(ns("summary_table"))),
+      tabPanel("GO distribution", plotOutput(ns("distribution_plot"), height = "650px")),
+      tabPanel("GO main", plotOutput(ns("main_plot"), height = "650px")),
+      tabPanel("GO quadrant", plotOutput(ns("quadrant_plot"), height = "650px"))
+    )
+  )
+}
+
+goAnalysisModuleServer <- function(id, go_df, corr_df, uniprot_to_function) {
+  moduleServer(id, function(input, output, session) {
+    
+    annotated_df <- reactive({
+      req(go_df(), corr_df(), uniprot_to_function())
+      build_go_analysis_df(
+        corr_df = corr_df(),
+        uniprot_to_function = uniprot_to_function(),
+        go_df = go_df()
+      )
+    })
+    
+    filtered_df <- reactive({
+      df <- annotated_df() %>%
+        filter(!is.na(Correlation_with_geneX), !is.na(go_group), go_group != "")
+      
+      if (isTRUE(input$drop_other)) {
+        df <- df %>% filter(go_group != "Other")
+      }
+      
+      df
+    })
+    
+    summary_df <- reactive({
+      df <- filtered_df()
+      req(nrow(df) > 0)
+      
+      global_median <- median(df$Correlation_with_geneX, na.rm = TRUE)
+      global_prop_high <- mean(df$Correlation_with_geneX > input$threshold, na.rm = TRUE)
+      
+      df %>%
+        group_by(go_group) %>%
+        summarise(
+          n_total = n(),
+          mean_corr = mean(Correlation_with_geneX, na.rm = TRUE),
+          median_corr = median(Correlation_with_geneX, na.rm = TRUE),
+          n_high = sum(Correlation_with_geneX > input$threshold, na.rm = TRUE),
+          prop_high = mean(Correlation_with_geneX > input$threshold, na.rm = TRUE),
+          expected_high = n_total * global_prop_high,
+          enrichment = ifelse(expected_high > 0, n_high / expected_high, NA_real_),
+          delta_median = median_corr - global_median,
+          .groups = "drop"
+        ) %>%
+        filter(n_total >= input$min_group_size)
+    })
+    
+    output$summary_table <- DT::renderDT({
+      req(summary_df())
+      
+      DT::datatable(
+        summary_df() %>% arrange(desc(delta_median)),
+        filter = "top",
+        options = list(pageLength = 15, scrollX = TRUE)
+      )
+    })
+    
+    output$distribution_plot <- renderPlot({
+      df <- filtered_df() %>%
+        group_by(go_group) %>%
+        mutate(n_group = n()) %>%
+        ungroup() %>%
+        filter(n_group >= input$min_group_size)
+      
+      req(nrow(df) > 0)
+      
+      ggplot(
+        df,
+        aes(
+          x = forcats::fct_reorder(go_group, Correlation_with_geneX, .fun = median, na.rm = TRUE),
+          y = Correlation_with_geneX
+        )
+      ) +
+        geom_boxplot(outlier.alpha = 0.25) +
+        coord_flip() +
+        theme_minimal() +
+        labs(x = "GO group", y = "Correlation")
+    })
+    
+    output$main_plot <- renderPlot({
+      df <- summary_df()
+      req(nrow(df) > 0)
+      
+      if (input$analysis_mode == "continuous") {
+        ggplot(df, aes(x = reorder(go_group, delta_median), y = delta_median, fill = delta_median)) +
+          geom_col() +
+          coord_flip() +
+          geom_hline(yintercept = 0, linetype = 2) +
+          scale_fill_gradient2(midpoint = 0) +
+          theme_minimal() +
+          labs(
+            x = "GO group",
+            y = "Median correlation - global median",
+            fill = "Shift"
+          )
+      } else {
+        ggplot(df, aes(x = reorder(go_group, enrichment), y = enrichment, fill = enrichment)) +
+          geom_col() +
+          coord_flip() +
+          geom_hline(yintercept = 1, linetype = 2) +
+          scale_fill_gradient2(midpoint = 1) +
+          theme_minimal() +
+          labs(
+            x = "GO group",
+            y = "Observed / Expected",
+            fill = "Enrichment"
+          )
+      }
+    })
+    
+    output$quadrant_plot <- renderPlot({
+      df <- summary_df()
+      req(nrow(df) > 0)
+      
+      ggplot(df, aes(x = enrichment, y = delta_median, size = n_total, label = go_group)) +
+        geom_point(alpha = 0.7) +
+        geom_vline(xintercept = 1, linetype = 2) +
+        geom_hline(yintercept = 0, linetype = 2) +
+        ggrepel::geom_text_repel(max.overlaps = 25) +
+        theme_minimal() +
+        labs(
+          x = "Enrichment (Observed / Expected)",
+          y = "Median correlation - global median",
+          size = "Group size"
+        )
+    })
+    
+    list(
+      annotated_df = annotated_df,
+      summary_df = summary_df
+    )
+  })
+}
+
 # ---------------------------
 # UI
 # ---------------------------
@@ -147,8 +455,9 @@ ui <- fluidPage(
     
     mainPanel(
       h6(
-        "Data from Tjaden, B. (2023)... ",
-        "https://doi.org/10.1080/15476286.2023.2189331"
+        "RNAseq Data from Supplementary Data 2 of Tjaden, B. (2023)... ",
+        "https://doi.org/10.1080/15476286.2023.2189331",
+        "GO terms from Uniprot GO annotation, sorted into 17 subcategories (see README)"
       ),
       
       conditionalPanel(
@@ -158,7 +467,9 @@ ui <- fluidPage(
         downloadButton("download_heatmap", "Download Heatmap (SVG)"),
         h3("Top Correlated Genes"),
         DTOutput("corTable"),
-        downloadButton("download_table", "Download Table (CSV)")
+        downloadButton("download_table", "Download Table (CSV)"),
+        h3("GO Group Analysis"),
+        goAnalysisModuleUI("go_mod")
       ),
       
       conditionalPanel(
@@ -169,7 +480,7 @@ ui <- fluidPage(
     )
   )
 )
-  
+
 run_single_gene <- function(
     geneX,
     cor_mat_all,
@@ -259,10 +570,10 @@ run_single_gene <- function(
   # ---- return results ----
   list(
     table = significant_hits,
+    full_table = correlation_df,
     heatmap_matrix = cor_mat
   )
 }
-
 
 # ---------------------------
 # SERVER
@@ -275,6 +586,7 @@ server <- function(input, output, session) {
   cor_mat_rv <- reactiveVal(NULL)
   heatmap_svg <- reactiveVal(NULL)
   significant_hits_rv <- reactiveVal(NULL)
+  full_correlation_rv <- reactiveVal(NULL)
   batch_results_rv <- reactiveVal(NULL)
   
   # ---------------------------
@@ -301,7 +613,7 @@ server <- function(input, output, session) {
         cor_threshold = input$cor_threshold,
         n_threshold   = input$n_threshold,
         primary_n     = input$primary_n,
-        show_numbers = input$heatmap_num
+        show_numbers  = input$heatmap_num
       )
       
       if (!input$batch) {
@@ -331,6 +643,7 @@ server <- function(input, output, session) {
         if (is.null(res)) return()
         
         significant_hits_rv(res$table)
+        full_correlation_rv(res$full_table)
         
         # render SVG
         svg_file <- file.path(tempdir(), paste0("heatmap_", Sys.getpid(), ".svg"))
@@ -391,6 +704,20 @@ server <- function(input, output, session) {
   })
   
   # ---------------------------
+  # GO module wiring
+  # ---------------------------
+  go_df_r <- reactive({ go_df })
+  uniprot_r <- reactive({ uniprot_to_function })
+  corr_for_go_r <- reactive({ full_correlation_rv() })
+  
+  goAnalysisModuleServer(
+    id = "go_mod",
+    go_df = go_df_r,
+    corr_df = corr_for_go_r,
+    uniprot_to_function = uniprot_r
+  )
+  
+  # ---------------------------
   # Outputs
   # ---------------------------
   output$corTable <- DT::renderDT({
@@ -435,8 +762,7 @@ server <- function(input, output, session) {
     },
     content = function(file) {
       req(significant_hits_rv())
-      write.csv(significant_hits_rv(),
-                file, row.names = FALSE)
+      write.csv(significant_hits_rv(), file, row.names = FALSE)
     }
   )
   
@@ -460,9 +786,16 @@ server <- function(input, output, session) {
         res <- results[[g]]
         if (is.null(res)) next
         
-        write.csv(
+        # ---- add GO annotation ----
+        annotated <- annotate_with_go(
           res$table,
-          file.path(tables_dir, paste0(g, "_correlations.csv")),
+          uniprot_to_function,
+          go_df
+        )
+        
+        write.csv(
+          annotated,
+          file.path(tables_dir, paste0(g, "_correlations_GO.csv")),
           row.names = FALSE
         )
         
@@ -487,6 +820,7 @@ server <- function(input, output, session) {
         )
       )
     }
-  )}
+  )
+}
 
 shinyApp(ui = ui, server = server)

@@ -54,6 +54,7 @@ Supported operating systems:
     data/
       correlation_matrix_all_genes.rds
       Supplementary_Table_2.txt
+      uniprotkb_proteome_UP000000625_2026_03_19.tsv
 
 Note: These data are provided temporarily via Box and will be archived on a permanent repository upon publication.
 
