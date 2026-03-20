@@ -111,6 +111,8 @@ These outputs can be saved for downstream analysis or publication.
 
 - For best performance, run the app from the project root via the RStudio project file.
 
+- Gene Ontology is a work in progress, see the attached file GO_Groups.txt for a summary of terms and sorting. 
+
 ------------------------------------------------------------
 
 ## Citation and Credit

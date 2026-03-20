@@ -88,17 +88,20 @@ go_df <- tibble(go_term = unique_GO) %>%
     go_term = str_remove(go_term, "\\s*\\[GO:\\d+\\]$"),
     go_group = case_when(
       
+      # --- central carbon metabolism ---
+      str_detect(go_term, "glycolysis|gluconeogenesis|pentose phosphate|pentose-phosphate|TCA|tricarboxylic acid|fermentation|carbon fixation|pyruvate|acetate|acetyl-CoA|propionate|succinyl-CoA|2-oxoglutarate|glyoxylate|succinate|citrate|malate|fumarate|lactate|ethanol|acetaldehyde|glycerol|generation of precursor metabolites") ~ "Central carbon metabolism",
+      
+      # --- secondary carbon utilization ---
+      str_detect(go_term, "carbon utilization|glucose|galactose|ribose|fucose|arabinose|maltose|lactose|mannitol|fructose|carbohydrate|hexose|monosaccharide|oligosaccharide|polysaccharide|glucarate|glucuronate|galactarate|galactonate|galacturonate|trehalose|cellobiose|xylan|pectin|gluconate|glucan|glycogen|mannose|rhamnose|sorbitol|melibiose|inositol|allantoin|ascorbic acid|tartrate|galactitol|allose|glycolate|ketone|carboxylic acid|organic acid|dicarboxylic acid|monocarboxylic acid|aldonic acid|organic phosphonate|aminophosphonate|N-acetylglucosamine|N-acetylmuramic acid|N-acetylmannosamine|N-acetylneuraminate|diacetylchitobiose|chitin|xylose|lyxose|xylulose|indole|methylglyoxal|formaldehyde|oxalate|phenylpropanoid|bile acid|carnitine|ureide|acetoacetic acid|butanol|dimethyl sulfoxide|amino sugar|cyanate") ~ "Secondary carbon utilization",
+      
       # --- nucleotide metabolism ---
       str_detect(go_term, "purine|pyrimidine|nucleotide|nucleoside|nucleobase|adenosine|guanosine|inosine|xanthosine|cytosine|uracil|uridine|thymine|thymidine|adenine|guanine|hypoxanthine|UMP|GMP|IMP|XMP|CMP|TMP|TTP|dATP|dTTP|UTP|CTP|ADP|dTMP|salvage|deoxycytidine|UDP|TDP|GTP|AMP") ~ "Nucleotide metabolism",
       
       # --- protein homeostasis ---
-      str_detect(go_term, "protein (catabolic|polymerization|stabilization|destabilization|folding|refolding|assembly|targeting|insertion|secretion|trimerization|tetramerization|oligomerization|lipoylation|glycosylation|methylation|adenylylation|proteolysis|peptide catabolic|peptide metabolic|chaperone|zymogen activation|oligomerization|trimerization|tetramerization|hexamerization|protein complex assembly|protein processing|signal peptide processing|glycosylation|lipoylation|protein repair|protein maturation|protein unfolding|protein unfolding|protein quality|protein autoprocessing|protein localization|denaturation|unfolded protein|protein de") ~ "Protein homeostasis",
+      str_detect(go_term, "protein catabolic|polymerization|stabilization|destabilization|folding|refolding|assembly|targeting|insertion|secretion|trimerization|tetramerization|oligomerization|lipoylation|glycosylation|methylation|adenylylation|proteolysis|peptide catabolic|peptide metabolic|chaperone|zymogen activation|oligomerization|trimerization|tetramerization|hexamerization|protein complex assembly|protein processing|signal peptide processing|glycosylation|lipoylation|protein repair|protein maturation|protein unfolding|protein unfolding|protein quality|protein autoprocessing|protein localization|denaturation|unfolded protein|protein de") ~ "Protein homeostasis",
       
       # --- energy metabolism ---
       str_detect(go_term, "electron transport chain|respiration|oxidative phosphorylation|ATP synthesis|hydrogen metabolic process|respiratory chain|generation of precursor metabolites and energy") ~ "Energy metabolism",
-      
-      # --- carbon metabolism ---
-      str_detect(go_term, "glycolysis|gluconeogenesis|pentose|TCA|tricarboxylic acid|fermentation|carbon fixation|carbon utilization|glucose|galactose|ribose|fucose|arabinose|maltose|lactose|mannitol|fructose|glycerol|pyruvate|acetate|acetyl-CoA|propionate|succinyl-CoA|2-oxoglutarate|glyoxylate|succinate|citrate|carbohydrate|hexose|monosaccharide|oligosaccharide|polysaccharide|glucarate|glucuronate|galactarate|galactonate|galacturonate|trehalose|cellobiose|xylan|pectin|gluconate|glucan|glycogen|mannose|rhamnose|sorbitol|melibiose|inositol|allantoin|ascorbic acid|tartrate|galactitol|allose|glycolate|lactate|ethanol|acetaldehyde|ketone|carboxylic acid|organic acid|dicarboxylic acid|monocarboxylic acid|aldonic acid|cyanate|organic phosphonate|aminophosphonate|N-acetylglucosamine|N-acetylmuramic acid|N-acetylmannosamine|N-acetylneuraminate|diacetylchitobiose|chitin|xylose|lyxose|glycol|malate|fumerate|xylulose") ~ "Carbon metabolism",
       
       # --- cofactor / vitamin metabolism ---
       str_detect(go_term, "heme|porphyrin|cytochrome|quinone|ubiquinone|menaquinone|NAD|NADP|FAD|FMN|lipoate|molybdopterin|vitamin|cofactor|prosthetic group|siderophore|enterobactin|thiamine|folic acid|tetrahydrofolate|dihydrofolate|pteridine|cobalamin|riboflavin|pyridox|coenzyme A|pantothenate|isoprenoid|terpenoid|polyprenol|ferredoxin|glutathione") ~ "Cofactor / vitamin metabolism",
@@ -113,8 +116,7 @@ go_df <- tibble(go_term = unique_GO) %>%
       str_detect(go_term, "transcription|gene expression") ~ "Transcription",
       
       # --- DNA maintenance ---
-      str_detect(go_term, "DNA replication|DNA repair|recombination|translesion|SOS response|chromosome|DNA damage|DNA integration|transposition|transformation|base-excision repair|double-strand break repair|interstrand cross-link repair|mismatch|plasmid partitioning|sister chromatid cohesion|DNA protection|CRISPR|DNA|photoreactive repair") ~ "DNA maintenance|methylation|plasmid",
-      
+      str_detect(go_term, "DNA replication|DNA repair|recombination|translesion|SOS response|chromosome|DNA damage|DNA integration|transposition|transformation|base-excision repair|double-strand break repair|interstrand cross-link repair|mismatch|plasmid partitioning|sister chromatid cohesion|DNA protection|CRISPR|DNA|photoreactive repair|methylation|plasmid") ~ "DNA maintenance",
       
       # --- translation / RNA biology ---
       str_detect(go_term, "translation|ribosome|ribosomal|tRNA|rRNA|mRNA|RNA processing|RNA modification|RNA methylation|RNA capping|ncRNA|pseudouridine|endoribonuclease|RNA metabolic process|RNA") ~ "Translation / RNA biology",
@@ -223,14 +225,19 @@ goAnalysisModuleUI <- function(id) {
           min = 1,
           step = 1
         )
+      )),
+    fluidRow(
+      column(
+        3,
+        checkboxInput(ns("hide_translation"), "Hide Translation / RNA biology", value = FALSE)
       ),
       column(
         3,
         checkboxInput(ns("drop_other"), "Hide Other", value = FALSE)
       )
     ),
-    
-    tabsetPanel(
+  
+  tabsetPanel(
       tabPanel("GO summary", DTOutput(ns("summary_table"))),
       tabPanel("GO distribution", plotOutput(ns("distribution_plot"), height = "650px")),
       tabPanel("GO main", plotOutput(ns("main_plot"), height = "650px")),
@@ -257,6 +264,10 @@ goAnalysisModuleServer <- function(id, go_df, corr_df, uniprot_to_function) {
       
       if (isTRUE(input$drop_other)) {
         df <- df %>% filter(go_group != "Other")
+      }
+      
+      if (isTRUE(input$hide_translation)) {
+        df <- df %>% filter(go_group != "Translation / RNA biology")
       }
       
       df
@@ -456,7 +467,9 @@ ui <- fluidPage(
     mainPanel(
       h6(
         "RNAseq Data from Supplementary Data 2 of Tjaden, B. (2023)... ",
-        "https://doi.org/10.1080/15476286.2023.2189331",
+        "https://doi.org/10.1080/15476286.2023.2189331"
+      ),
+      h6(
         "GO terms from Uniprot GO annotation, sorted into 17 subcategories (see README)"
       ),
       
