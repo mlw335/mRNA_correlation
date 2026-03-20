@@ -1,0 +1,52 @@
+      # --- nucleotide metabolism ---
+      "purine|pyrimidine|nucleotide|nucleoside|nucleobase|adenosine|guanosine|inosine|xanthosine|cytosine|uracil|uridine|thymine|thymidine|adenine|guanine|hypoxanthine|UMP|GMP|IMP|XMP|CMP|TMP|TTP|dATP|dTTP|UTP|CTP|ADP|dTMP|salvage|deoxycytidine|UDP|TDP|GTP|AMP
+      
+      # --- protein homeostasis ---
+      catabolic|polymerization|stabilization|destabilization|folding|refolding|assembly|targeting|insertion|secretion|trimerization|tetramerization|oligomerization|lipoylation|glycosylation|methylation|adenylylation|proteolysis|peptide catabolic|peptide metabolic|chaperone|zymogen activation|oligomerization|trimerization|tetramerization|hexamerization|protein complex assembly|protein processing|signal peptide processing|glycosylation|lipoylation|protein repair|protein maturation|protein unfolding|protein unfolding|protein quality|protein autoprocessing|protein localization|denaturation|unfolded protein|protein de
+      
+      # --- energy metabolism ---
+      electron transport chain|respiration|oxidative phosphorylation|ATP synthesis|hydrogen metabolic process|respiratory chain|generation of precursor metabolites and energy
+      
+      # --- carbon metabolism ---
+     glycolysis|gluconeogenesis|pentose|TCA|tricarboxylic acid|fermentation|carbon fixation|carbon utilization|glucose|galactose|ribose|fucose|arabinose|maltose|lactose|mannitol|fructose|glycerol|pyruvate|acetate|acetyl-CoA|propionate|succinyl-CoA|2-oxoglutarate|glyoxylate|succinate|citrate|carbohydrate|hexose|monosaccharide|oligosaccharide|polysaccharide|glucarate|glucuronate|galactarate|galactonate|galacturonate|trehalose|cellobiose|xylan|pectin|gluconate|glucan|glycogen|mannose|rhamnose|sorbitol|melibiose|inositol|allantoin|ascorbic acid|tartrate|galactitol|allose|glycolate|lactate|ethanol|acetaldehyde|ketone|carboxylic acid|organic acid|dicarboxylic acid|monocarboxylic acid|aldonic acid|cyanate|organic phosphonate|aminophosphonate|N-acetylglucosamine|N-acetylmuramic acid|N-acetylmannosamine|N-acetylneuraminate|diacetylchitobiose|chitin|xylose|lyxose|glycol|malate|fumerate|xylulose
+      
+      # --- cofactor / vitamin metabolism ---
+      heme|porphyrin|cytochrome|quinone|ubiquinone|menaquinone|NAD|NADP|FAD|FMN|lipoate|molybdopterin|vitamin|cofactor|prosthetic group|siderophore|enterobactin|thiamine|folic acid|tetrahydrofolate|dihydrofolate|pteridine|cobalamin|riboflavin|pyridox|coenzyme A|pantothenate|isoprenoid|terpenoid|polyprenol|ferredoxin|glutathione
+      
+      # --- ion / homeostasis ---
+      magnesium|iron|zinc|copper|manganese|nickel|cadmium|cobalt|selenium|molybdate|potassium|phosphate|phosphorus|sulfate|sulfur compound|ion homeostasis|membrane potential|cation|homeostasis
+      
+      # --- transport ---
+      transport|import|export
+      
+      # --- transcription ---
+      transcription|gene expression
+      
+      # --- DNA maintenance ---
+      DNA replication|DNA repair|recombination|translesion|SOS response|chromosome|DNA damage|DNA integration|transposition|transformation|base-excision repair|double-strand break repair|interstrand cross-link repair|mismatch|plasmid partitioning|sister chromatid cohesion|DNA protection|CRISPR|DNA|photoreactive repair
+      
+      
+      # --- translation / RNA biology ---
+      translation|ribosome|ribosomal|tRNA|rRNA|mRNA|RNA processing|RNA modification|RNA methylation|RNA capping|ncRNA|pseudouridine|endoribonuclease|RNA metabolic process|RNA
+      
+      # --- motility ---
+      flagell|chemotaxis|motility|aerotaxis|thermotaxis|pilus
+      
+      # --- cell envelope ---
+      cell wall|peptidoglycan|outer membrane|lipopolysaccharide|capsule|membrane assembly|membrane organization|periplasmic space organization|lipoprotein|cellulose|biofilm|cell shape|cell morphogenesis|cell growth|cell size|division|septum|cytokinesis|curli|amyloid fibril|O antigen|common antigen|adhesion|cell killing|autolysis|ring assembly|growth|osmosensory|cytoskeleton|invagination|cell tip|colanic acid
+      
+      # --- lipid metabolism ---
+      fatty acid|lipid|phospholipid|cardiolipin|lipid A|phosphatid|acyl-CoA|butyryl-CoA|poly-hydroxybutyrate|steroid") ~ "Lipid metabolism",
+      
+      # --- amino acid metabolism ---
+      amino acid|arginine|lysine|methionine|threonine|serine|glycine|tryptophan|tyrosine|histidine|cysteine|glutamate|aspartate|proline|alanine|valine|leucine|isoleucine|phenylalanine|ornithine|putrescine|spermidine|spermine|taurine|GABA|asparagine|glutamine|amine metabolic|biogenic amine|sulfur utilization|gamma-aminobutyric acid|nitrate|nitrite|ammonia|urea|amine|nitrogen utilization
+      
+      
+      # --- stress / response ---
+      stress|response to|detoxification|starvation|oxidative|heat|cold|temperature|osmotic|hypotonic|hyperosmotic|acidic pH|alkaline pH|radiation|antibiotic|xenobiotic|toxic substance|nitric oxide|hydrogen peroxide|superoxide|defense|phage shock|dormancy|programmed cell death|symbiotic interaction|virus|viral|toxin|stringent
+      
+      # --- signaling ---
+      signal transduction|phosphorelay|phosphorylation|autophosphorylation|cAMP|quorum sensing|sensory|detection
+      
+      
+      TRUE ~ "Other"
