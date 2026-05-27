@@ -16,7 +16,8 @@ required_packages <- c(
   "htmltools",
   "zip",
   "ggrepel",
-  "forcats"
+  "forcats",
+  "uwot"
 )
 
 installed <- rownames(installed.packages())
