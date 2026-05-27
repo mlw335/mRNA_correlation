@@ -419,46 +419,49 @@ ui <- fluidPage(
   
   sidebarLayout(
     sidebarPanel(
+      
       checkboxInput("batch", "Batch input mode", value = FALSE),
       
       conditionalPanel(
         condition = "!input.batch",
-        textInput("geneX", "Enter Gene of Interest:", value = "geneX")
+        
+        textInput("geneX", "Enter Gene of Interest:", value = "geneX"),
+        
+        textInput("GOIs", "Additional Genes (comma-separated):", value = ""),
+        
+        sliderInput(
+          "cor_threshold",
+          "Correlation cutoff:",
+          min = 0, max = 1, value = 0.5, step = 0.05
+        ),
+        
+        numericInput(
+          "primary_n",
+          "Top primary hits:",
+          value = 25, min = 1
+        ),
+        
+        checkboxInput(
+          "heatmap_num",
+          "Include values in heatmap?",
+          value = TRUE
+        )
       ),
       
       conditionalPanel(
         condition = "input.batch",
+        
         fileInput(
           "batch_file",
           "Upload gene list (one gene per line)",
           accept = c(".txt", ".csv")
+        ),
+        
+        numericInput(
+          "n_threshold",
+          "Minimum n-value (overlaps):",
+          value = 500, min = 1
         )
-      ),
-      
-      textInput("GOIs", "Additional Genes (comma-separated):", value = ""),
-      
-      sliderInput(
-        "cor_threshold",
-        "Correlation cutoff:",
-        min = 0, max = 1, value = 0.5, step = 0.05
-      ),
-      
-      numericInput(
-        "n_threshold",
-        "Minimum n-value (overlaps):",
-        value = 100, min = 1
-      ),
-      
-      numericInput(
-        "primary_n",
-        "Top primary hits:",
-        value = 25, min = 1
-      ),
-      
-      checkboxInput(
-        "heatmap_num",
-        "Include values in heatmap?",
-        value = TRUE
       ),
       
       actionButton("run", "Run Analysis")
@@ -554,24 +557,52 @@ run_single_gene <- function(
     n_with_geneX = as.integer(n_with_geneX[common_genes])
   )
   
+  n <- nrow(df_wide_clean)
+  
+  
+  correlation_df <- correlation_df %>%
+    mutate(
+      r = pmin(pmax(Correlation_with_geneX, -0.999999), 0.999999),
+      z_score = atanh(r) * sqrt(n - 3),
+      p_value = 2 * pnorm(-abs(z_score)),
+      p_adj = p.adjust(p_value, method = "BH")
+    )
+  
   # ---- filter significant hits ----
   significant_hits <- correlation_df %>%
     filter(!is.na(Correlation_with_geneX)) %>%
-    filter(abs(Correlation_with_geneX) >= cor_threshold) %>%
-    filter(n_with_geneX >= n_threshold) %>%
+    filter(n_with_geneX >= n_threshold)%>%
+    filter(p_adj < 0.05)
+  
+  # apply threshold only if supplied
+  if (!is.null(cor_threshold)) {
+    
+    significant_hits <- significant_hits %>%
+      filter(abs(Correlation_with_geneX) >= cor_threshold)
+    
+  }
+  
+  significant_hits <- significant_hits %>%
     arrange(desc(abs(Correlation_with_geneX)))
   
   # ---- build heatmap matrix ----
-  heatmap_genes <- unique(
-    c(geneX, head(significant_hits$Gene, primary_n), GOIs)
-  )
+  hit_genes <- significant_hits$Gene
+  hit_genes <- hit_genes[hit_genes %in% rownames(cor_mat_all)]
   
-  heatmap_genes <- heatmap_genes[
-    heatmap_genes %in% rownames(cor_mat_all)
-  ]
+  heatmap_genes <- unique(c(geneX, head(hit_genes, primary_n), GOIs))
+  
+  heatmap_genes <- heatmap_genes[!is.na(heatmap_genes)]
   
   if (length(heatmap_genes) < 2) {
     stop("Not enough genes to construct heatmap")
+  }
+  
+  if (length(significant_hits$Gene) == 0) {
+    return(list(
+      table = significant_hits,
+      full_table = correlation_df,
+      heatmap_matrix = matrix(NA, 1, 1)
+    ))
   }
   
   cor_mat <- cor_mat_all[
@@ -601,6 +632,7 @@ server <- function(input, output, session) {
   significant_hits_rv <- reactiveVal(NULL)
   full_correlation_rv <- reactiveVal(NULL)
   batch_results_rv <- reactiveVal(NULL)
+  final_summary_rv <- reactiveVal(NULL)
   
   # ---------------------------
   # Lazy loader for large matrix
@@ -684,9 +716,10 @@ server <- function(input, output, session) {
         genes <- genes[genes != ""]
         genes <- unique(genes)
         
+        results <- list()
+        summary_tables <- list()
+        
         n_genes <- length(genes)
-        results <- vector("list", n_genes)
-        names(results) <- genes
         
         for (i in seq_along(genes)) {
           g <- genes[i]
@@ -696,22 +729,85 @@ server <- function(input, output, session) {
             detail = paste("Processing", g)
           )
           
-          results[[g]] <- tryCatch(
+          res <- tryCatch(
             run_single_gene(
               g,
               cor_mat_all,
               df,
-              GOIs,
-              params$cor_threshold,
-              params$n_threshold,
-              params$primary_n,
-              params$show_numbers
+              GOIs = NULL,
+              cor_threshold = NULL,
+              n_threshold = params$n_threshold,
+              primary_n = params$primary_n,
+              show_numbers = params$show_numbers
             ),
-            error = function(e) NULL
+            error = function(e) {
+              message("FAILED: ", g, " -> ", e$message)
+              return(NULL)
+            }
+          )
+          
+          # store result WITH name explicitly
+          results[[g]] <- res
+          
+          # skip failed genes cleanly
+          if (is.null(res)) next
+          
+          annotated <- annotate_with_go(
+            res$table,
+            uniprot_to_function,
+            go_df
+          )
+          
+          cutoff <- quantile(
+            abs(annotated$Correlation_with_geneX),
+            0.99,
+            na.rm = TRUE
+          )
+          
+          top_hits <- annotated %>%
+            filter(
+              p_adj < 0.05,
+              abs(Correlation_with_geneX) >= cutoff
+            ) %>%
+            distinct(Gene, go_group, .keep_all = TRUE)
+          
+          background_counts <- annotated %>%
+            count(go_group, name = "background_n")
+          
+          top_counts <- top_hits %>%
+            count(go_group, name = "top_n")
+          
+          total_top <- nrow(top_hits)
+          total_background <- nrow(annotated)
+          
+          enrichment_df <- top_counts %>%
+            left_join(background_counts, by = "go_group") %>%
+            mutate(
+              expected = background_n / total_background,
+              observed = top_n / total_top,
+              enrichment = observed / expected
+            ) %>%
+            arrange(desc(enrichment))
+          
+          top_gene_names <- res$table %>%
+            distinct(Gene, .keep_all = TRUE) %>%
+            slice_head(n = 20) %>%
+            pull(Gene)
+          
+          summary_tables[[g]] <- tibble(
+            Query_Gene = g,
+            Primary_GO_group = enrichment_df$go_group[1],
+            Secondary_GO_group = enrichment_df$go_group[2],
+            Tertiary_GO_group = enrichment_df$go_group[3],
+            Mean_Correlation = mean(top_hits$Correlation_with_geneX, na.rm = TRUE),
+            Min_P_value = min(annotated$p_value, na.rm = TRUE),
+            Median_P_value = median(annotated$p_value, na.rm = TRUE),
+            Top_Hits = paste(top_gene_names, collapse = "; ")
           )
         }
         
         batch_results_rv(results)
+        final_summary_rv(bind_rows(summary_tables))
       }
     })
   })
@@ -781,7 +877,7 @@ server <- function(input, output, session) {
   
   output$download_batch <- downloadHandler(
     filename = function() {
-      paste0("GeneCorrelationExplorer_batch_", Sys.Date(), ".zip")
+      paste0("GeneCorrelationExplorer_batch_", Sys.Date(), Sys.time(), ".zip")
     },
     content = function(file) {
       
@@ -791,12 +887,142 @@ server <- function(input, output, session) {
       tmpdir <- tempdir()
       tables_dir   <- file.path(tmpdir, "tables")
       heatmaps_dir <- file.path(tmpdir, "heatmaps")
-      
+      summary_dir <- file.path(tmpdir, "summaries")
+
+      unlink(tables_dir, recursive = TRUE)
+      unlink(heatmaps_dir, recursive = TRUE)
+      unlink(summary_dir, recursive = TRUE)
+
       dir.create(tables_dir, showWarnings = FALSE)
       dir.create(heatmaps_dir, showWarnings = FALSE)
+      dir.create(summary_dir, showWarnings = FALSE)
+
+      run_single_gene <- function(
+    geneX,
+    cor_mat_all,
+    df,
+    GOIs,
+    cor_threshold,
+    n_threshold,
+    primary_n,
+    show_numbers = TRUE
+) {
+  
+  geneX <- trimws(geneX)
+  
+  # ---- validation ----
+  if (!geneX %in% rownames(cor_mat_all)) {
+    stop(paste0("Gene '", geneX, "' not found in correlation matrix"))
+  }
+  
+  # ---- reshape expression table ----
+  df_long <- df %>%
+    pivot_longer(
+      cols = -(1:7),
+      names_to = "Condition",
+      values_to = "Expression"
+    ) %>%
+    select(Name, Condition, Expression)
+  
+  df_wide <- df_long %>%
+    pivot_wider(names_from = Name, values_from = Expression)
+  
+  # ---- compute overlaps ----
+  df_wide_clean <- df_wide %>%
+    filter(!is.na(.data[[geneX]]))
+  
+  numeric_cols <- df_wide_clean %>%
+    select(-Condition) %>%
+    mutate(across(
+      everything(),
+      ~ suppressWarnings(as.numeric(.x))
+    ))
+  
+  cor_with_geneX <- cor_mat_all[geneX, ]
+  cor_with_geneX <- cor_with_geneX[names(cor_with_geneX) != geneX]
+  
+  n_with_geneX <- colSums(
+    !is.na(numeric_cols) & !is.na(numeric_cols[[geneX]])
+  )
+  n_with_geneX <- n_with_geneX[names(n_with_geneX) != geneX]
+  
+  common_genes <- intersect(
+    names(cor_with_geneX),
+    names(n_with_geneX)
+  )
+  
+  correlation_df <- tibble(
+    Gene = common_genes,
+    Correlation_with_geneX = as.numeric(cor_with_geneX[common_genes]),
+    n_with_geneX = as.integer(n_with_geneX[common_genes])
+  )
+  
+  n <- nrow(df_wide_clean)
+  
+  
+  correlation_df <- correlation_df %>%
+    mutate(
+      r = pmin(pmax(Correlation_with_geneX, -0.999999), 0.999999),
+      z_score = atanh(r) * sqrt(n - 3),
+      p_value = 2 * pnorm(-abs(z_score)),
+      p_adj = p.adjust(p_value, method = "BH")
+    )
+  
+  # ---- filter significant hits ----
+  significant_hits <- correlation_df %>%
+    filter(!is.na(Correlation_with_geneX)) %>%
+    filter(n_with_geneX >= n_threshold)%>%
+    filter(p_adj < 0.05)
+  
+  # apply threshold only if supplied
+  if (!is.null(cor_threshold)) {
+    
+    significant_hits <- significant_hits %>%
+      filter(abs(Correlation_with_geneX) >= cor_threshold)
+    
+  }
+  
+  significant_hits <- significant_hits %>%
+    arrange(desc(abs(Correlation_with_geneX)))
+  
+  # ---- build heatmap matrix ----
+  hit_genes <- significant_hits$Gene
+  hit_genes <- hit_genes[hit_genes %in% rownames(cor_mat_all)]
+  
+  heatmap_genes <- unique(c(geneX, head(hit_genes, primary_n), GOIs))
+  
+  heatmap_genes <- heatmap_genes[!is.na(heatmap_genes)]
+  
+  if (length(heatmap_genes) < 2) {
+    stop("Not enough genes to construct heatmap")
+  }
+  
+  if (length(significant_hits$Gene) == 0) {
+    return(list(
+      table = significant_hits,
+      full_table = correlation_df,
+      heatmap_matrix = matrix(NA, 1, 1)
+    ))
+  }
+  
+  cor_mat <- cor_mat_all[
+    heatmap_genes,
+    heatmap_genes,
+    drop = FALSE
+  ]
+  
+  # ---- return results ----
+  list(
+    table = significant_hits,
+    full_table = correlation_df,
+    heatmap_matrix = cor_mat
+  )
+}
       
-      for (g in names(results)) {
-        res <- results[[g]]
+      valid_results <- results[!vapply(results, is.null, logical(1))]
+      
+      for (g in names(valid_results)) {
+        res <- valid_results[[g]]
         if (is.null(res)) next
         
         # ---- add GO annotation ----
@@ -817,9 +1043,17 @@ server <- function(input, output, session) {
           width = 8,
           height = 8
         )
+        
         pheatmap::pheatmap(res$heatmap_matrix)
         dev.off()
+        
       }
+      
+      write.csv(
+        final_summary_rv(),
+        file.path(summary_dir, "ALL_GENE_SUMMARY.csv"),
+        row.names = FALSE
+      )
       
       old_wd <- getwd()
       on.exit(setwd(old_wd), add = TRUE)
@@ -829,7 +1063,8 @@ server <- function(input, output, session) {
         zipfile = file,
         files = c(
           file.path("tables", list.files("tables")),
-          file.path("heatmaps", list.files("heatmaps"))
+          file.path("heatmaps", list.files("heatmaps")),
+          file.path("summaries", list.files("summaries")),
         )
       )
     }
