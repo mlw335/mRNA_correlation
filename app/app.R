@@ -756,11 +756,9 @@ server <- function(input, output, session) {
             }
           )
           
-          # store result WITH name explicitly
-          results[[g]] <- res
-          
-          # skip failed genes cleanly
           if (is.null(res)) next
+          
+          results[[g]] <- res
           
           annotated <- annotate_with_go(
             res$table,
@@ -814,6 +812,10 @@ server <- function(input, output, session) {
             Median_P_value = median(annotated$p_value, na.rm = TRUE),
             Top_Hits = paste(top_gene_names, collapse = "; ")
           )
+          
+          if (i %% 50 == 0) {
+            gc()
+          }
         }
         
         batch_results_rv(results)
@@ -1034,16 +1036,22 @@ server <- function(input, output, session) {
       
       valid_results <- results[!vapply(results, is.null, logical(1))]
       
+      all_annotated <- lapply(valid_results, function(res) {
+        annotate_with_go(
+          res$table,
+          uniprot_to_function,
+          go_df
+        )
+      })
+      
+      names(all_annotated) <- names(valid_results)
+      
       for (g in names(valid_results)) {
         res <- valid_results[[g]]
         if (is.null(res)) next
         
         # ---- add GO annotation ----
-        annotated <- annotate_with_go(
-          res$table,
-          uniprot_to_function,
-          go_df
-        )
+        annotated <- all_annotated[[g]]
         
         write.csv(
           annotated,
