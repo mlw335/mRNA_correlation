@@ -1184,6 +1184,15 @@ server <- function(input, output, session) {
       on.exit(setwd(old_wd), add = TRUE)
       setwd(tmpdir)
       
+      zip_progress <- shiny::Progress$new()
+      on.exit(zip_progress$close(), add = TRUE)
+      
+      zip_progress$set(message = "Zipping results", value = 0.1)
+      
+      zip_progress$set(detail = "Preparing file list...", value = 0.3)
+      
+      zip_progress$set(detail = "Compressing archive...", value = 0.6)
+      
       zip::zip(
         zipfile = file,
         files = c(
@@ -1193,6 +1202,8 @@ server <- function(input, output, session) {
           file.path("umap", list.files("umap"))
         )
       )
+      
+      zip_progress$set(detail = "Finalizing ZIP...", value = 1)
     }
   )
 }
