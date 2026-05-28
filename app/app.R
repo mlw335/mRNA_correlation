@@ -15,6 +15,7 @@ library(htmltools)
 library(zip)
 library(ggrepel)
 library(forcats)
+library(uwot)
 
 # ---------------------------
 # Resolve project paths
@@ -36,6 +37,11 @@ supp_table_path <- file.path(
 uniprot_path <- file.path(
   data_dir,
   "uniprotkb_proteome_UP000000625_2026_03_19.tsv"
+)
+
+umap_path <- file.path(
+  data_dir,
+  "UMAP_df.csv"
 )
 
 # ---------------------------
@@ -72,6 +78,10 @@ df <- read.delim(
 uniprot_to_function <- readr::read_tsv(
   uniprot_path,
   show_col_types = FALSE
+)
+
+umap_df <- read.csv(
+  umap_path
 )
 
 # ---------------------------
@@ -888,14 +898,17 @@ server <- function(input, output, session) {
       tables_dir   <- file.path(tmpdir, "tables")
       heatmaps_dir <- file.path(tmpdir, "heatmaps")
       summary_dir <- file.path(tmpdir, "summaries")
+      umap_dir <- file.path(tmpdir, "umap")
 
       unlink(tables_dir, recursive = TRUE)
       unlink(heatmaps_dir, recursive = TRUE)
       unlink(summary_dir, recursive = TRUE)
+      unlink(umap_dir, recursive = TRUE)
 
       dir.create(tables_dir, showWarnings = FALSE)
       dir.create(heatmaps_dir, showWarnings = FALSE)
       dir.create(summary_dir, showWarnings = FALSE)
+      dir.create(umap_dir, showWarnings = FALSE)
 
       run_single_gene <- function(
     geneX,
@@ -1047,6 +1060,78 @@ server <- function(input, output, session) {
         pheatmap::pheatmap(res$heatmap_matrix)
         dev.off()
         
+        cutoff <- quantile(
+          abs(annotated$Correlation_with_geneX),
+          0.99,
+          na.rm = TRUE
+        )
+        
+        top_hits <- annotated %>%
+          filter(
+            p_adj < 0.05,
+            abs(Correlation_with_geneX) >= cutoff
+          ) %>%
+          distinct(Gene, go_group, .keep_all = TRUE)
+        
+        umap_df_gene <- umap_df
+        
+        umap_df_gene$hit <- umap_df_gene$Gene %in% top_hits$Gene
+        umap_df_gene$gene_of_interest <- umap_df_gene$Gene == g
+        
+        df_bg   <- umap_df_gene %>% filter(!hit & !gene_of_interest)
+        df_hits <- umap_df_gene %>% filter(hit & !gene_of_interest)
+        df_goi  <- umap_df_gene %>% filter(gene_of_interest)
+        
+        label_df <- umap_df_gene %>% filter(hit)
+        
+        p <- ggplot() +
+          
+          geom_point(
+            data = df_bg,
+            aes(UMAP1, UMAP2),
+            color = "grey85",
+            size = 1,
+            alpha = 0.5
+          ) +
+          
+          geom_point(
+            data = df_hits,
+            aes(UMAP1, UMAP2),
+            color = "red",
+            size = 2,
+            alpha = 0.9
+          ) +
+          
+          geom_point(
+            data = df_goi,
+            aes(UMAP1, UMAP2),
+            shape = 21,
+            fill = "green3",
+            color = "black",
+            stroke = 0.6,
+            size = 4
+          ) +
+          
+          ggrepel::geom_text_repel(
+            data = label_df,
+            aes(UMAP1, UMAP2, label = Gene),
+            size = 3,
+            box.padding = 0.4,
+            point.padding = 0.3,
+            segment.color = "grey60",
+            max.overlaps = Inf
+          ) +
+          
+          theme_minimal()
+        
+        svglite::svglite(
+          file.path(umap_dir, paste0(g, "_umap.svg")),
+          width = 8,
+          height = 6
+        )
+        
+        print(p)
+        dev.off()
       }
       
       write.csv(
@@ -1065,6 +1150,7 @@ server <- function(input, output, session) {
           file.path("tables", list.files("tables")),
           file.path("heatmaps", list.files("heatmaps")),
           file.path("summaries", list.files("summaries")),
+          file.path("umap", list.files("umap"))
         )
       )
     }

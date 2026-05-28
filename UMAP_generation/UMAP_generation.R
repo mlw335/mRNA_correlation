@@ -10,11 +10,13 @@ dist_mat <- 1 - cor_mat
 
 set.seed(1)
 
-# filter NAs
-keep <- complete.cases(dist_mat) & apply(dist_mat, 1, function(x) all(!is.na(x)))
-dist_mat_clean <- dist_mat[keep, keep]
-cor_mat_clean <- cor_mat[keep, keep]
-umap_coords <- uwot::umap(cor_mat_clean)
+cor_mat_clean <- cor_mat
+cor_mat_clean[is.na(cor_mat_clean)] <- 0
+
+umap_coords <- uwot::umap(
+  cor_mat_clean,
+  metric = "cosine"
+)
 
 # generate umap df
 umap_df <- data.frame(
