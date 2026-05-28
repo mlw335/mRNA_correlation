@@ -505,7 +505,8 @@ ui <- fluidPage(
         )
       ),
       
-      actionButton("run", "Run Analysis")
+      actionButton("run", "Run Analysis"),
+      uiOutput("job_status_ui")
     ),
     
     mainPanel(
@@ -656,6 +657,10 @@ server <- function(input, output, session) {
   full_correlation_rv <- reactiveVal(NULL)
   batch_results_rv <- reactiveVal(NULL)
   final_summary_rv <- reactiveVal(NULL)
+  job_status_rv <- reactiveVal("idle")
+  job_runtime_rv <- reactiveVal(NULL)
+  job_counts_rv <- reactiveVal(NULL)
+  params_rv <- reactiveVal(NULL)
   
   # ---------------------------
   # Lazy loader for large matrix
@@ -669,6 +674,9 @@ server <- function(input, output, session) {
   }
   
   observeEvent(input$run, {
+    
+    job_status_rv("running")
+    run_start <- Sys.time()
     
     withProgress(message = "Running analysis...", value = 0, {
       
@@ -685,6 +693,8 @@ server <- function(input, output, session) {
         export_heatmaps = input$export_heatmaps,
         export_umaps = input$export_umaps
       )
+      
+      params_rv(params)
       
       if (!input$batch) {
         # --------------------
@@ -707,6 +717,7 @@ server <- function(input, output, session) {
           error = function(e) {
             showNotification(e$message, type = "error")
             return(NULL)
+            job_status_rv("failed")
           }
         )
         
@@ -729,6 +740,26 @@ server <- function(input, output, session) {
         
         heatmap_svg(paste(readLines(svg_file), collapse = "\n"))
         
+        job_status_rv("complete")
+        
+        showNotification(
+          "Analysis complete.",
+          type = "message",
+          duration = NULL
+        )
+        
+        runtime <- round(
+          as.numeric(difftime(Sys.time(), run_start, units = "secs")),
+          1
+        )
+        
+        job_runtime_rv(runtime)
+        
+        job_counts_rv(list(
+          processed = 1,
+          failed = 0
+        ))
+        
       } else {
         # --------------------
         # Batch mode
@@ -746,12 +777,10 @@ server <- function(input, output, session) {
         
         n_genes <- length(genes)
         
-        start_time <- Sys.time()
-        
         for (i in seq_along(genes)) {
           g <- genes[i]
           
-          elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
+          elapsed <- as.numeric(difftime(Sys.time(), run_start, units = "secs"))
           
           avg_per_gene <- elapsed / i
           
@@ -857,6 +886,30 @@ server <- function(input, output, session) {
         
         batch_results_rv(results)
         final_summary_rv(bind_rows(summary_tables))
+        
+        job_status_rv("complete")
+        
+        showNotification(
+          paste0(
+            "Batch analysis complete. ",
+            length(results),
+            " genes processed."
+          ),
+          type = "message",
+          duration = NULL
+        )
+        
+        runtime <- round(
+          as.numeric(difftime(Sys.time(), run_start, units = "mins")),
+          1
+        )
+        
+        job_runtime_rv(runtime)
+        
+        job_counts_rv(list(
+          processed = length(results),
+          failed = n_genes - length(results)
+        ))
       }
     })
   })
@@ -878,6 +931,57 @@ server <- function(input, output, session) {
   # ---------------------------
   # Outputs
   # ---------------------------
+  
+  output$job_status_ui <- renderUI({
+    
+    status <- job_status_rv()
+    
+    if (status == "idle") {
+      
+      div(style="color: grey;",
+          "Status: Idle")
+      
+    } else if (status == "running") {
+      
+      div(
+        style="color: orange; font-weight: bold;",
+        icon("spinner"),
+        " Running..."
+      )
+      
+    } else if (status == "complete") {
+      
+      counts <- job_counts_rv()
+      runtime <- job_runtime_rv()
+      
+      div(
+        style="
+        color: green;
+        font-weight: bold;
+        padding: 10px;
+        border: 2px solid #28a745;
+        border-radius: 8px;
+        background-color: #f4fff6;
+      ",
+        
+        HTML(paste0(
+          "<b>Analysis Complete ✓</b><br>",
+          "Processed: ", counts$processed,
+          "<br>Failed: ", counts$failed,
+          "<br>Runtime: ", runtime,
+          ifelse(input$batch, " min", " sec")
+        ))
+      )
+      
+    } else {
+      
+      div(
+        style="color: red; font-weight: bold;",
+        "Status: Failed"
+      )
+    }
+  })
+  
   output$corTable <- DT::renderDT({
     req(significant_hits_rv())
     DT::datatable(
@@ -929,6 +1033,12 @@ server <- function(input, output, session) {
       paste0("GeneCorrelationExplorer_batch_", Sys.Date(), Sys.time(), ".zip")
     },
     content = function(file) {
+        
+        results <- batch_results_rv()
+        req(results)
+        
+        params <- params_rv()
+        req(params)
       
       results <- batch_results_rv()
       req(results)
@@ -1038,19 +1148,20 @@ server <- function(input, output, session) {
             color = "black",
             stroke = 0.6,
             size = 4
-          ) +
+          ) + theme_minimal()
           
-          ggrepel::geom_text_repel(
-            data = label_df,
-            aes(UMAP1, UMAP2, label = Gene),
-            size = 3,
-            box.padding = 0.4,
-            point.padding = 0.3,
-            segment.color = "grey60",
-            max.overlaps = Inf
-          ) +
-          
-          theme_minimal()
+        if (isTRUE(input$umap_labels)) {
+          p <- p +
+            ggrepel::geom_text_repel(
+              data = label_df,
+              aes(UMAP1, UMAP2, label = Gene),
+              size = 3,
+              box.padding = 0.4,
+              point.padding = 0.3,
+              segment.color = "grey60",
+              max.overlaps = Inf
+            )
+        }
         
         svglite::svglite(
           file.path(umap_dir, paste0(g, "_umap.svg")),
