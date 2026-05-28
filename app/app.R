@@ -84,6 +84,21 @@ umap_df <- read.csv(
   umap_path
 )
 
+df_long <- df %>%
+  pivot_longer(
+    cols = -(1:7),
+    names_to = "Condition",
+    values_to = "Expression"
+  ) %>%
+  select(Name, Condition, Expression)
+
+df_wide <- df_long %>%
+  pivot_wider(names_from = Name, values_from = Expression)
+
+numeric_expr <- df_wide %>%
+  select(-Condition) %>%
+  mutate(across(everything(), as.numeric))
+
 # ---------------------------
 # Build GO lookup table once
 # ---------------------------
@@ -154,10 +169,6 @@ go_df <- tibble(go_term = unique_GO) %>%
       TRUE ~ "Other"
     )
   )
-
-# ---------------------------
-# Large matrix will be loaded lazily in server()
-# ---------------------------
 
 # ---------------------------
 # GO helper functions
@@ -455,7 +466,8 @@ ui <- fluidPage(
           "heatmap_num",
           "Include values in heatmap?",
           value = TRUE
-        )
+        ),
+
       ),
       
       conditionalPanel(
@@ -470,7 +482,26 @@ ui <- fluidPage(
         numericInput(
           "n_threshold",
           "Minimum n-value (overlaps):",
-          value = 500, min = 1
+          value = 500,
+          min = 1
+        ),
+        
+        checkboxInput(
+          "export_heatmaps",
+          "Export heatmaps",
+          value = TRUE
+        ),
+        
+        checkboxInput(
+          "export_umaps",
+          "Export UMAP plots",
+          value = TRUE
+        ),
+        
+        checkboxInput(
+          "umap_labels",
+          "Label UMAP hits",
+          value = TRUE
         )
       ),
       
@@ -525,28 +556,10 @@ run_single_gene <- function(
     stop(paste0("Gene '", geneX, "' not found in correlation matrix"))
   }
   
-  # ---- reshape expression table ----
-  df_long <- df %>%
-    pivot_longer(
-      cols = -(1:7),
-      names_to = "Condition",
-      values_to = "Expression"
-    ) %>%
-    select(Name, Condition, Expression)
-  
-  df_wide <- df_long %>%
-    pivot_wider(names_from = Name, values_from = Expression)
-  
-  # ---- compute overlaps ----
-  df_wide_clean <- df_wide %>%
+  df_wide_clean <- numeric_expr %>%
     filter(!is.na(.data[[geneX]]))
   
-  numeric_cols <- df_wide_clean %>%
-    select(-Condition) %>%
-    mutate(across(
-      everything(),
-      ~ suppressWarnings(as.numeric(.x))
-    ))
+  numeric_cols <- df_wide_clean
   
   cor_with_geneX <- cor_mat_all[geneX, ]
   cor_with_geneX <- cor_with_geneX[names(cor_with_geneX) != geneX]
@@ -668,7 +681,9 @@ server <- function(input, output, session) {
         cor_threshold = input$cor_threshold,
         n_threshold   = input$n_threshold,
         primary_n     = input$primary_n,
-        show_numbers  = input$heatmap_num
+        show_numbers  = input$heatmap_num,
+        export_heatmaps = input$export_heatmaps,
+        export_umaps = input$export_umaps
       )
       
       if (!input$batch) {
@@ -731,12 +746,34 @@ server <- function(input, output, session) {
         
         n_genes <- length(genes)
         
+        start_time <- Sys.time()
+        
         for (i in seq_along(genes)) {
           g <- genes[i]
           
+          elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
+          
+          avg_per_gene <- elapsed / i
+          
+          remaining_genes <- n_genes - i
+          
+          eta_secs <- avg_per_gene * remaining_genes
+          
+          eta_min <- round(eta_secs / 60, 1)
+          
           incProgress(
             1 / n_genes,
-            detail = paste("Processing", g)
+            detail = paste0(
+              "Processing ",
+              g,
+              " (",
+              i,
+              "/",
+              n_genes,
+              ") | ETA: ",
+              eta_min,
+              " min"
+            )
           )
           
           res <- tryCatch(
@@ -849,7 +886,7 @@ server <- function(input, output, session) {
       options = list(pageLength = 25, scrollX = TRUE)
     )
   })
-  
+ 
   output$heatmap_svg_ui <- renderUI({
     req(heatmap_svg())
     tagList(
@@ -911,128 +948,6 @@ server <- function(input, output, session) {
       dir.create(heatmaps_dir, showWarnings = FALSE)
       dir.create(summary_dir, showWarnings = FALSE)
       dir.create(umap_dir, showWarnings = FALSE)
-
-      run_single_gene <- function(
-    geneX,
-    cor_mat_all,
-    df,
-    GOIs,
-    cor_threshold,
-    n_threshold,
-    primary_n,
-    show_numbers = TRUE
-) {
-  
-  geneX <- trimws(geneX)
-  
-  # ---- validation ----
-  if (!geneX %in% rownames(cor_mat_all)) {
-    stop(paste0("Gene '", geneX, "' not found in correlation matrix"))
-  }
-  
-  # ---- reshape expression table ----
-  df_long <- df %>%
-    pivot_longer(
-      cols = -(1:7),
-      names_to = "Condition",
-      values_to = "Expression"
-    ) %>%
-    select(Name, Condition, Expression)
-  
-  df_wide <- df_long %>%
-    pivot_wider(names_from = Name, values_from = Expression)
-  
-  # ---- compute overlaps ----
-  df_wide_clean <- df_wide %>%
-    filter(!is.na(.data[[geneX]]))
-  
-  numeric_cols <- df_wide_clean %>%
-    select(-Condition) %>%
-    mutate(across(
-      everything(),
-      ~ suppressWarnings(as.numeric(.x))
-    ))
-  
-  cor_with_geneX <- cor_mat_all[geneX, ]
-  cor_with_geneX <- cor_with_geneX[names(cor_with_geneX) != geneX]
-  
-  n_with_geneX <- colSums(
-    !is.na(numeric_cols) & !is.na(numeric_cols[[geneX]])
-  )
-  n_with_geneX <- n_with_geneX[names(n_with_geneX) != geneX]
-  
-  common_genes <- intersect(
-    names(cor_with_geneX),
-    names(n_with_geneX)
-  )
-  
-  correlation_df <- tibble(
-    Gene = common_genes,
-    Correlation_with_geneX = as.numeric(cor_with_geneX[common_genes]),
-    n_with_geneX = as.integer(n_with_geneX[common_genes])
-  )
-  
-  n <- nrow(df_wide_clean)
-  
-  
-  correlation_df <- correlation_df %>%
-    mutate(
-      r = pmin(pmax(Correlation_with_geneX, -0.999999), 0.999999),
-      z_score = atanh(r) * sqrt(n - 3),
-      p_value = 2 * pnorm(-abs(z_score)),
-      p_adj = p.adjust(p_value, method = "BH")
-    )
-  
-  # ---- filter significant hits ----
-  significant_hits <- correlation_df %>%
-    filter(!is.na(Correlation_with_geneX)) %>%
-    filter(n_with_geneX >= n_threshold)%>%
-    filter(p_adj < 0.05)
-  
-  # apply threshold only if supplied
-  if (!is.null(cor_threshold)) {
-    
-    significant_hits <- significant_hits %>%
-      filter(abs(Correlation_with_geneX) >= cor_threshold)
-    
-  }
-  
-  significant_hits <- significant_hits %>%
-    arrange(desc(abs(Correlation_with_geneX)))
-  
-  # ---- build heatmap matrix ----
-  hit_genes <- significant_hits$Gene
-  hit_genes <- hit_genes[hit_genes %in% rownames(cor_mat_all)]
-  
-  heatmap_genes <- unique(c(geneX, head(hit_genes, primary_n), GOIs))
-  
-  heatmap_genes <- heatmap_genes[!is.na(heatmap_genes)]
-  
-  if (length(heatmap_genes) < 2) {
-    stop("Not enough genes to construct heatmap")
-  }
-  
-  if (length(significant_hits$Gene) == 0) {
-    return(list(
-      table = significant_hits,
-      full_table = correlation_df,
-      heatmap_matrix = matrix(NA, 1, 1)
-    ))
-  }
-  
-  cor_mat <- cor_mat_all[
-    heatmap_genes,
-    heatmap_genes,
-    drop = FALSE
-  ]
-  
-  # ---- return results ----
-  list(
-    table = significant_hits,
-    full_table = correlation_df,
-    heatmap_matrix = cor_mat
-  )
-}
       
       valid_results <- results[!vapply(results, is.null, logical(1))]
       
@@ -1058,7 +973,9 @@ server <- function(input, output, session) {
           file.path(tables_dir, paste0(g, "_correlations_GO.csv")),
           row.names = FALSE
         )
-        
+       
+        if (isTRUE(params$export_heatmaps)) { 
+          
         svglite::svglite(
           file.path(heatmaps_dir, paste0(g, "_heatmap.svg")),
           width = 8,
@@ -1067,6 +984,7 @@ server <- function(input, output, session) {
         
         pheatmap::pheatmap(res$heatmap_matrix)
         dev.off()
+        }
         
         cutoff <- quantile(
           abs(annotated$Correlation_with_geneX),
@@ -1074,6 +992,8 @@ server <- function(input, output, session) {
           na.rm = TRUE
         )
         
+        if (isTRUE(params$export_umaps)) {
+          
         top_hits <- annotated %>%
           filter(
             p_adj < 0.05,
@@ -1140,6 +1060,7 @@ server <- function(input, output, session) {
         
         print(p)
         dev.off()
+        }
       }
       
       write.csv(
