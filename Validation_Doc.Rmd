@@ -1,0 +1,1366 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-06-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{r formatting}
+
+library(cowplot)
+library(tidyverse)
+library(ggridges)
+library(dbscan)
+library(ggrepel)
+library(knitr)
+library(kableExtra)
+library(rtracklayer)
+library(gggenes)
+
+all_genes_output <- read.csv("data/ALL_GENE_SUMMARY.csv")
+
+all_genes_length <- read_tsv(
+  "data/Copy-of-All-genes-of-E.-coli-K-12-substr.-MG1655 (1).txt"
+) %>%
+  mutate(Right = as.integer(`Right-End-Position`),
+         Left = as.integer(`Left-End-Position`),
+         length = abs(Right - Left),
+         aa_length = floor(length / 3)) %>% select(`Gene Name`, `Accession-1`, `Product`, `Characterization`, `aa_length`)
+
+umap_gene <- read.csv("data/UMAP_df.csv")
+
+gene_long <- all_genes_output %>%
+  left_join(all_genes_length, by = c("Query_Gene" = "Gene Name")) %>%
+  left_join(umap_gene, by = c("Query_Gene" = "Gene")) %>%
+  mutate(
+    size_class = if_else(aa_length >= 100, ">100 aa", "<100 aa"),
+    GO_family = sub(":.*", "", Primary_GO_group)
+  ) %>%
+  pivot_longer(
+    cols = c(Primary_GO_group, Secondary_GO_group, Tertiary_GO_group),
+    names_to = "GO_rank",
+    values_to = "GO_group"
+  ) %>%
+  filter(!is.na(GO_group), GO_group != "NA", GO_group != "Other")
+
+uniprot_to_function <- readr::read_tsv(
+  "data/uniprotkb_proteome_UP000000625_2026_03_19.tsv",
+  show_col_types = FALSE
+)
+```
+
+
+### Summary Table of GO Assignments and Mean Correlation
+
+```{r summaries}
+
+go_summary <- gene_long %>%
+  group_by(GO_group) %>%
+  summarise(
+    n_genes = n_distinct(Query_Gene),
+    median_corr = median(Mean_Correlation),
+    .groups = "drop"
+  )
+
+#go_summary %>%
+#  knitr::kable() 
+
+go_counts <- gene_long %>%
+  count(GO_group, name = "n_genes")
+
+gene_df <- gene_long %>%
+  group_by(Query_Gene, GO_group) %>%
+  summarise(
+    gene_mean_corr = mean(Mean_Correlation),
+    .groups = "drop"
+  ) %>%
+  left_join(go_summary, by = "GO_group") %>%
+  mutate(residual = gene_mean_corr - median_corr)
+
+go_residual <- gene_df %>%
+  group_by(GO_group) %>%
+  summarise(
+    mean_residual = mean(residual),
+    se = sd(residual) / sqrt(n()),
+    n = n(),
+    .groups = "drop"
+  )
+
+plot_base <- gene_long %>%
+  left_join(go_counts, by = "GO_group")
+
+plot_unchar <- plot_base %>%
+  filter(Characterization != "WELL-CHARACTERIZED")
+
+go_labels <- go_counts %>%
+  mutate(GO_label = paste0(GO_group, " (n=", n_genes, ")"))
+```
+
+```{r characterized-GO}
+unique_GO <- uniprot_to_function %>%
+  tidyr::separate_rows(`Gene Ontology (biological process)`, sep = ";\\s*") %>%
+  dplyr::pull(`Gene Ontology (biological process)`) %>%
+  unique()
+
+go_df <- tibble(go_term = unique_GO) %>%
+  filter(!is.na(go_term), go_term != "") %>%
+  mutate(
+    go_term = str_remove(go_term, "\\s*\\[GO:\\d+\\]$"),
+    
+    go_group = case_when(
+      
+      # =========================
+      # CARBON METABOLISM 
+      # =========================
+      
+      str_detect(go_term, "glycolysis|gluconeogenesis|glycolytic") ~ "Central carbon: glycolysis/gluconeogenesis",
+      
+      str_detect(go_term, "pentose phosphate") ~ "Central carbon: pentose phosphate pathway",
+      
+      str_detect(go_term, "TCA|tricarboxylic acid|citrate cycle") ~ "Central carbon: TCA cycle",
+      
+      str_detect(go_term, "fermentation|ethanol|lactate|acetate") ~ "Central carbon: fermentation",
+      
+      str_detect(go_term, "pyruvate|acetyl-CoA|oxaloacetate|succinate|fumarate") ~ "Central carbon: intermediates",
+      
+      str_detect(go_term, "carbon fixation") ~ "Central carbon: carbon fixation",
+      
+      
+      # =========================
+      # SECONDARY CARBON
+      # =========================
+      
+      str_detect(go_term, "secondary carbon|carbohydrate utilization|carbohydrate") ~ "Carbon utilization: general",
+      
+      str_detect(go_term, "glucose|galactose|fructose|mannose|ribose|xylose|arabinose|glycerol") ~ "Carbon utilization: sugars",
+      
+      str_detect(go_term, "cellobiose|trehalose|maltose|lactose") ~ "Carbon utilization: disaccharides",
+      
+      str_detect(go_term, "glycogen|starch|xylan|pectin|chitin") ~ "Carbon utilization: polysaccharides",
+      
+      str_detect(go_term, "organic acid|carboxylic acid|dicarboxylic") ~ "Carbon utilization: organic acids",
+      
+      str_detect(go_term, "N-acetyl|amino sugar|glucuronate|galacturonate") ~ "Carbon utilization: sugar derivatives",
+      
+      
+      # =========================
+      # NUCLEOTIDES
+      # =========================
+      
+      str_detect(go_term, "purine|pyrimidine|nucleotide|nucleoside") ~ "Nucleotide metabolism",
+      
+      str_detect(go_term, "salvage|de novo") ~ "Nucleotide metabolism: pathway type",
+      
+      
+      # =========================
+      # AMINO ACIDS
+      # =========================
+      
+      str_detect(go_term, "amino acid|arginine|lysine|methionine|leucine|isoleucine|valine") ~ "Amino acid metabolism: branched-chain",
+      
+      str_detect(go_term, "tryptophan|tyrosine|phenylalanine") ~ "Amino acid metabolism: aromatic",
+      
+      str_detect(go_term, "glutamate|aspartate|glutamine|asparagine") ~ "Amino acid metabolism: acidic",
+      
+      str_detect(go_term, "glycine|serine|alanine") ~ "Amino acid metabolism: small amino acids",
+      
+      str_detect(go_term, "putrescine|spermidine|polyamine") ~ "Amino acid metabolism: polyamines",
+      
+      
+      # =========================
+      # LIPIDS 
+      # =========================
+      
+      str_detect(go_term, "fatty acid biosynthesis|acyl-CoA") ~ "Lipid metabolism: synthesis",
+      
+      str_detect(go_term, "phospholipid|cardiolipin|phosphatid|lipid metabolic") ~ "Lipid metabolism: membrane lipids",
+      
+      str_detect(go_term, "lipid A|lipopolysaccharide") ~ "Lipid metabolism: LPS",
+      
+      str_detect(go_term, "beta-oxidation|fatty acid degradation") ~ "Lipid metabolism: degradation",
+      
+      str_detect(go_term, "fatty acid|lipid") ~ "Lipid metabolism: other",
+      
+      
+      # =========================
+      # MEMBRANE / ENVELOPE 
+      # =========================
+      
+      str_detect(go_term, "peptidoglycan|cell wall|cell shape") ~ "Cell envelope: peptidoglycan",
+      
+      str_detect(go_term, "outer membrane|periplasm|cell envelope") ~ "Cell envelope: outer membrane",
+      
+      str_detect(go_term, "capsule|biofilm|adhesion|colanic acid|pilus|O antigen|slime") ~ "Cell envelope: surface structures",
+      
+      str_detect(go_term, "cell division|cytokinesis|septum|cell growth") ~ "Cell envelope: division machinery",
+      
+      
+      # =========================
+      # ENERGY
+      # =========================
+      
+      str_detect(go_term, "respiration|electron transport|oxidative phosphorylation") ~ "Energy metabolism: respiration",
+      
+      str_detect(go_term, "ATP synthesis|ATPase") ~ "Energy metabolism: ATP generation",
+      
+      
+      # =========================
+      # COFACTORS
+      # =========================
+      
+      str_detect(go_term, "heme|cytochrome|quinone|NAD|FAD|FMN") ~ "Cofactors: redox",
+      
+      str_detect(go_term, "vitamin|coenzyme|folate|biotin|thiamine|folic acid|molybdopterin|riboflavin|cobalamin|pyridoxine") ~ "Cofactors: vitamins",
+      
+      str_detect(go_term, "siderophore|iron|molybdate|metal| ion|copper|selenium|potassium|magnesium|zinc") ~ "Cofactors: metal handling",
+      
+      
+      # =========================
+      # DNA / RNA
+      # =========================
+      
+      str_detect(go_term, "DNA replication|chromosome|lagging|leading") ~ "DNA: replication",
+      
+      str_detect(go_term, "DNA repair|recombination|SOS|DNA damage|mismatch repair|base-excision|double-strand break") ~ "DNA: repair",
+      
+      str_detect(go_term, "transcription|RNA processing") ~ "RNA: transcription",
+      
+      str_detect(go_term, "ribosom|tRNA|rRNA|translation") ~ "RNA: translation",
+      str_detect(go_term, "transposition|integration|provirus|viral genome|CRISPR|restriction-modification") ~ "DNA: mobile elements",
+      
+      
+      # =========================
+      # STRESS (split)
+      # =========================
+      
+      str_detect(go_term, "oxidative|superoxide|peroxide|redox") ~ "Stress: oxidative",
+      
+      str_detect(go_term, "heat|cold|temperature") ~ "Stress: thermal",
+      
+      str_detect(go_term, "osmotic") ~ "Stress: osmotic",
+      
+      str_detect(go_term, "antibiotic|toxic|detox") ~ "Stress: chemical",
+      
+      str_detect(go_term, "response to|response") ~ "Stress: general",
+      
+      
+      # =========================
+      # SIGNALING 
+      # =========================
+      
+      str_detect(go_term, "two-component|response regulator|sensor kinase") ~ "Signaling: two-component systems",
+      
+      str_detect(go_term, "quorum sensing|c-di-GMP|cAMP") ~ "Signaling: small molecules",
+      
+      str_detect(go_term, "phosphorelay|autophosphorylation") ~ "Signaling: phosphorylation systems",
+      
+      str_detect(go_term, "signal transduction| regulation of") ~ "Signaling: general",
+      
+      
+      # =========================
+      # MOTILITY
+      # =========================
+      
+      str_detect(go_term, "flagell|chemotaxis|motility") ~ "Motility: flagellar systems",
+      
+      
+      # =========================
+      # PROTEIN HOMEOSTASIS
+      # =========================
+
+      str_detect(go_term,
+           "proteolysis|protein folding|protein refolding|protein maturation|protein repair|protein stabilization|protein unfolding|protein transport|protein secretion|Sec complex|protein insertion") ~ "Protein homeostasis",
+      
+      # =========================
+      # TRANSPORT
+      # =========================
+
+      str_detect(go_term,
+           "transmembrane transport|transporter|uptake|export|efflux|import|transport") ~ "Transport",
+      
+      
+      # =========================
+      # DEFAULT
+      # =========================
+      
+      TRUE ~ "Other / unclassified"
+    )
+  )
+
+uniprot_small <- uniprot_to_function %>%
+  transmute(
+    Gene = `Gene Names (primary)`,
+    go_raw = `Gene Ontology (biological process)`
+  ) %>%
+  filter(!is.na(Gene), Gene != "") %>%
+  separate_rows(go_raw, sep = ";\\s*") %>%
+  mutate(
+    go_raw = str_trim(go_raw),
+
+    # extract GO ID (works regardless of position)
+    go_id = str_extract(go_raw, "GO:\\d+"),
+
+    # remove GO ID anywhere in string
+    go_term = go_raw %>%
+      str_remove("\\s*\\[?GO:\\d+\\]?") %>%
+      str_remove("^GO:\\d+\\s*") %>%
+      str_trim()
+  ) %>%
+  mutate(
+    go_id = na_if(go_id, "")
+  )
+
+gene_go_assignments <- uniprot_small %>%
+  filter(!is.na(go_id)) %>%
+  left_join(go_df, by = "go_term") %>%
+  select(Gene, go_term, go_group) %>%
+  distinct()
+
+#gene_go_assignments %>%
+#  filter(go_group == "Other / unclassified") %>%
+#  count(go_term, sort = TRUE)
+
+#gene_go_assignments %>% group_by(go_group)%>%
+# summarise(n_class = n_distinct(Gene)) %>%
+#  filter(n_class > 1)
+
+#gene_go_assignments %>%
+#  summarise(
+#    n_edges = n(),
+#    n_genes = n_distinct(Gene),
+#    n_go = n_distinct(go_term),
+#    missing_group = mean(is.na(go_group))
+#  )
+```
+
+
+### Figure of Summary of GO Assignments and Mean Correlation 
+
+
+```{r p1, fig.width= 18, fig.height=18, include=TRUE}
+
+p1a <- plot_base %>%
+  mutate(GO_label = go_labels$GO_label[match(GO_group, go_labels$GO_group)]) %>%
+  ggplot(aes(Mean_Correlation, GO_label, fill = GO_group)) +
+  geom_density_ridges(alpha = 0.8, scale = 1.1) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 16)
+  ) +
+  labs(x = "Mean Correlation", y = NULL)
+
+p1b <- go_summary %>%
+  ggplot(aes(median_corr, n_genes, color = GO_group)) +
+  geom_point(size = 3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_cowplot() +
+  theme(
+    legend.position = "none"
+  ) +
+  labs(
+    x = "Median Correlation",
+    y = "Number of Genes in GO"
+  )
+
+p1c <- go_residual %>%
+  ggplot(aes(reorder(GO_group, mean_residual), mean_residual, color = GO_group)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_residual - se,
+                    ymax = mean_residual + se),
+                color = "black") +
+  geom_hline(yintercept = 0.05, linetype = "dashed", alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = -0.05, linetype = "dashed", alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, linetype = "dotted", alpha = 0.8) +
+  coord_flip()+
+  theme_cowplot() +
+  theme(
+    legend.position = "none"
+  ) +
+  labs(
+    x = NULL,
+    y = "Mean Residual GO"
+  ) 
+
+p1bc <- plot_grid(
+  p1b, p1c,
+  labels = c("B", "C"),
+  ncol = 1, 
+  rel_heights = c(0.75, 1.25)
+)
+
+
+p1_final <- plot_grid(
+  p1a, p1bc,
+  labels = c("A", ""),
+  ncol = 2,
+  rel_heights = c(1, 1), 
+  rel_widths = c(1.25, 0.75)
+)
+
+p1_final
+
+#cor.test(
+#  go_summary$n_genes,
+#  go_summary$median_corr
+#)
+
+#cor.test(
+#  go_summary$n_genes,
+#  go_summary$median_corr,
+#  method = "spearman"
+#)
+
+```
+
+
+The distribution of Mean correlation varies across GO groups indicating that GO assigments represent a variety of biological functional categories. Differences in distribution shape likely reflect heterogeneity in transcriptional organization and pathway structure, although the specific regulatory mechanisms underlying these patterns cannot be determined from coexpression alone.
+
+GO-group membership count was positively associated with median coexpression (Pearson r = 0.37, p = 0.014; Spearman ρ = 0.45, p = 0.003). However, the effect size was modest (R² ≈ 0.05), indicating that annotation size explains only a minority of the variation in coexpression among functional groups. GO size alone is not a significant driver of coexpression structure. Substantial variability exists across other axes, driving differences between categories and being a useful tool for hypothesis generation and the putative characterization of uncharacterized genes. 
+
+```{r recover_biology}
+valid_genes <- gene_long %>%
+  filter(Characterization != "UNCHARACTERIZED") %>%
+  pull(Query_Gene)
+
+# ----------------------------
+# STANDARDISE INPUTS
+# ----------------------------
+annotated2 <- gene_go_assignments %>%
+  select(Gene, GO_group = go_group) %>%
+  distinct() %>%
+  filter(Gene %in% valid_genes)
+
+recovered2 <- gene_long %>%
+  select(Query_Gene, GO_group) %>%
+  distinct() %>%
+  filter(Query_Gene %in% valid_genes)
+
+recovered2 <- recovered2 %>% dplyr::rename(Gene = Query_Gene)
+
+prepare_go <- function(df, gene_col) {
+
+  df %>%
+    select(all_of(gene_col), GO_group) %>%
+    distinct() %>%
+    rename(Gene = all_of(gene_col)) %>%
+    mutate(
+      GO_main = sub("\\s*:.*$", "", GO_group),
+      GO_sub  = GO_group
+    )
+}
+
+annotated <- prepare_go(annotated2, "Gene")
+recovered <- prepare_go(recovered2, "Gene")
+
+annotated_df <- annotated %>%
+  mutate(source = "Annotated")
+
+recovered_df <- recovered %>%
+  mutate(source = "Recovered")
+
+# ----------------------------
+# CORE FUNCTION
+# ----------------------------
+compute_accuracy_with_null <- function(recovered_df,
+                                       annotated_df,
+                                       n_perm = 500) {
+
+  eval_level <- function(rec, ann, join_col) {
+
+    correct <- ann %>%
+      inner_join(rec, by = c("Gene", join_col))
+
+    tibble(
+      gene = n_distinct(correct$Gene) / n_distinct(ann$Gene),
+      edge = nrow(correct) / nrow(ann)
+    )
+  }
+
+  # ----------------------------
+  # OBSERVED
+  # ----------------------------
+  obs_main <- eval_level(recovered_df, annotated_df, "GO_main")
+  obs_sub  <- eval_level(recovered_df, annotated_df, "GO_sub")
+
+  # ----------------------------
+  # NULL MODEL (FIXED)
+  # ----------------------------
+  null <- replicate(n_perm, {
+
+    shuffled <- recovered_df %>%
+      mutate(GO_group = sample(GO_group)) %>%
+      mutate(
+        GO_main = sub("\\s*:.*$", "", GO_group),
+        GO_sub  = GO_group
+      )
+
+    tibble(
+      main = eval_level(shuffled, annotated_df, "GO_main"),
+      sub  = eval_level(shuffled, annotated_df, "GO_sub"),
+    )
+
+  }, simplify = FALSE)
+
+  # ----------------------------
+  # FLATTEN NULL PROPERLY
+  # ----------------------------
+  null_df <- bind_rows(lapply(null, function(x) {
+    tibble(
+      main_gene = x$main$gene,
+      main_edge = x$main$edge,
+      sub_gene  = x$sub$gene,
+      sub_edge  = x$sub$edge
+    )
+  }))
+
+  null_summary <- tibble(
+    main_gene_mean = mean(null_df$main_gene),
+    main_edge_mean = mean(null_df$main_edge),
+
+    sub_gene_mean  = mean(null_df$sub_gene),
+    sub_edge_mean  = mean(null_df$sub_edge)
+  )
+
+  list(
+    observed = list(
+      main = obs_main,
+      sub  = obs_sub
+    ),
+    null = null_summary,
+    null_dist = null_df
+  )
+}
+
+
+# ----------------------------
+# RUN
+# ----------------------------
+res <- compute_accuracy_with_null(recovered, annotated)
+
+res$observed
+view(res$null_dist)
+
+obs_df <- tibble(
+  level = c("Main", "Sub"),
+  gene = c(
+    res$observed$main$gene,
+    res$observed$sub$gene
+  ),
+  edge = c(
+    res$observed$main$edge,
+    res$observed$sub$edge
+  )
+)
+
+# ----------------------------
+# EXTRACT NULL
+# ----------------------------
+null_df <- tibble(
+  level = rep(c("Main", "Sub"), each = 1),
+
+  gene_mean = c(
+    mean(res$null_dist$main_gene),
+    mean(res$null_dist$sub_gene)
+  ),
+
+  edge_mean = c(
+    mean(res$null_dist$main_edge),
+    mean(res$null_dist$sub_edge)
+  )
+)
+
+```
+
+### Figure of Biological and GO Recovery
+
+```{r p2, fig.width= 18, fig.height=18, include=TRUE }
+go_all <- bind_rows(annotated_df, recovered_df)
+
+go_plot_df <- go_all %>%
+  count(source, GO_main, name = "n")%>%
+  group_by(source) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+go_plot_df <- go_plot_df %>%
+  group_by(GO_main) %>%
+  mutate(total = sum(n)) %>%
+  ungroup() %>%
+  mutate(GO_main = reorder(GO_main, total))
+
+p2a <- ggplot(go_plot_df, aes(x = GO_main, y = prop, fill = source)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(
+    aes(label = n),
+    position = position_dodge(width = 0.7),
+    size = 3,
+    hjust = -0.2
+  ) +
+  coord_flip() +
+  theme_cowplot()
+
+plot_df <- bind_rows(
+  obs_df %>%
+    mutate(type = "Observed") %>%
+    dplyr::rename(gene_val = gene, edge_val = edge),
+
+  null_df %>%
+    mutate(type = "Null") %>%
+    dplyr::rename(gene_val = gene_mean, edge_val = edge_mean)
+) %>%
+  tidyr::pivot_longer(
+    cols = c(gene_val, edge_val),
+    names_to = "metric",
+    values_to = "value"
+  ) %>%
+  mutate(
+    metric = ifelse(metric == "gene_val", "Genes", "Gene-GO associations")
+  )
+
+p2b <- ggplot(plot_df, aes(x = level, y = value * 100, fill = type)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+
+  ylab("Percent correctly recovered") +
+  xlab(NULL) +
+
+  facet_wrap(~metric, scales = "fixed") +
+   geom_text(
+    aes(label = round(value * 100, 1)),
+    position = position_dodge(width = 0.7),
+    size = 3,
+    vjust = -0.2
+  ) +
+  theme_cowplot() + theme_minimal_hgrid()
+
+null_long <- res$null_dist %>%
+  tidyr::pivot_longer(cols = everything(),
+                      names_to = "metric",
+                      values_to = "value")
+
+obs_vals <- tibble(
+  metric = c("main_gene", "sub_gene", "main_edge", "sub_edge"),
+  obs = c(res$observed$main$gene,
+          res$observed$sub$gene,
+          res$observed$main$edge,
+          res$observed$sub$edge)
+)
+
+p2c <- ggplot(null_long, aes(x = value)) +
+  geom_histogram(bins = 100, fill = "grey80", color = "white") +
+  geom_vline(data = obs_vals,
+             aes(xintercept = obs),
+             color = "red", linewidth = 1) +
+  facet_wrap(~metric, scales = "free", ncol = 1) +
+  labs(
+    x = "Null distribution",
+    y = "Count",
+    title = "Permutation null distributions with observed values"
+  ) +
+  theme_cowplot()
+
+null_stats <- res$null_dist %>%
+  summarise(
+    main_gene_mean = mean(main_gene),
+    main_gene_sd   = sd(main_gene),
+
+    sub_gene_mean  = mean(sub_gene),
+    sub_gene_sd    = sd(sub_gene),
+
+    main_edge_mean = mean(main_edge),
+    main_edge_sd   = sd(main_edge),
+
+    sub_edge_mean  = mean(sub_edge),
+    sub_edge_sd    = sd(sub_edge)
+  )
+
+
+correct_sub <- annotated %>%
+  inner_join(recovered, by = c("Gene", "GO_sub"))
+
+set.seed(1)
+
+example_table <- correct_sub %>%
+  select(Gene, GO_sub) %>%
+  distinct() %>%
+  sample_n(25)
+
+example_table
+
+library(gridExtra)
+
+table_grob <- tableGrob(example_table, rows = NULL)
+
+table_grob$heights <- unit(rep(1.6, nrow(table_grob)), "lines")
+table_grob$widths  <- unit(rep(2, ncol(table_grob)), "null")
+
+p2d <- ggdraw() + draw_grob(
+  table_grob)
+
+p2ac <- plot_grid(
+  p2a, p2c, labels = c("A", "C"),
+  ncol = 1, 
+  rel_heights = c(1.33, 0.66)
+)
+
+p2bd <- plot_grid(
+  p2b, p2d,
+  ncol = 1,
+  labels = c("B", "D"))
+
+p2_final <- plot_grid(
+  p2ac, p2bd, 
+  labels = c("", "")
+)
+
+p2_final
+
+```
+
+```{r operon-table}
+interesting_operons <- tribble(
+  ~gene, ~operon,
+  
+  #Gln
+  "glnA", "Gln", "glnL", "Gln", "glnG", "Gln",
+
+  # Lac
+  "lacZ","Lac","lacY","Lac","lacA","Lac",
+
+  # Gal
+  "galE","Gal","galT","Gal","galK","Gal","galM","Gal",
+
+  # Trp
+  "trpE","Trp","trpD","Trp","trpC","Trp","trpB","Trp","trpA","Trp", "trpL", "Trp",
+
+  # Leu
+  "leuA","Leu","leuB","Leu","leuC","Leu","leuD","Leu",
+
+  # His
+  "hisG","His","hisD","His","hisC","His","hisB","His",
+
+  # Arg
+  "argA","Arg","argB","Arg","argC","Arg","argD","Arg","argE","Arg",
+
+  # ATP synthase
+  "atpI","ATP","atpB","ATP","atpE","ATP","atpF","ATP","atpH","ATP",
+  "atpA","ATP","atpG","ATP","atpD","ATP","atpC","ATP",
+
+  # Glyoxylate shunt
+  "aceA","Glyox","aceB","Glyox","aceK","Glyox",
+
+  # TCA (sdh)
+  "sdhC","TCA","sdhD","TCA","sdhA","TCA","sdhB","TCA",
+
+  # TCA (suc)
+  "sucA","TCA","sucB","TCA","sucC","TCA","sucD","TCA",
+
+  # Nitrate respiration
+  "narG","Nitrate","narH","Nitrate","narI","Nitrate","narJ","Nitrate","narK","Nitrate",
+
+  # Nitrite reduction
+  "nirB","Nitrite","nirD","Nitrite","nirC","Nitrite",
+
+  # Hydrogenase
+  "hyaA","Hydrogenase","hyaB","Hydrogenase","hyaC","Hydrogenase",
+  "hybO","Hydrogenase","hybA","Hydrogenase","hybB","Hydrogenase",
+
+  # Enterobactin
+  "entA","Enterobactin","entB","Enterobactin","entC","Enterobactin",
+  "entD","Enterobactin","entE","Enterobactin","entF","Enterobactin",
+
+  # Ribosomal S10
+  "rpsJ","Ribosomal","rplC","Ribosomal","rplD","Ribosomal",
+  "rplW","Ribosomal","rplB","Ribosomal","rpsS","Ribosomal",
+
+  # Ribosomal spc
+  "rplN","Ribosomal","rplX","Ribosomal","rplE","Ribosomal",
+  "rpsN","Ribosomal","rpsH","Ribosomal","rplF","Ribosomal","rplR","Ribosomal",
+
+  # RNA polymerase
+  "rpoA","Ribosomal_alpha","rpsD","Ribosomal_alpha","rpsK","Ribosomal_alpha","rpsM","Ribosomal_alpha","rplQ","Ribosomal_alpha",
+
+  # DCW (division and cell wall synthesis module)
+  "mraZ","DCW",
+  "rsmH","DCW",
+  "mraY","DCW",
+  "murD","DCW",
+  "murF","DCW",
+  "murC","DCW",
+  "murE","DCW",
+  "murG","DCW",
+
+  "ftsZ","DCW",
+  "ftsA","DCW",
+  "ftsQ","DCW",
+  "ftsL","DCW",
+  "ftsI","DCW",
+  "ftsW","DCW",
+  
+  "ddlB", "DCW",
+
+  # Ula
+  "ulaA","Ula","ulaB","Ula","ulaC","Ula","ulaD","Ula","ulaE","Ula",
+
+  # Rut pyrimidine degradation
+  "rutA","Rut","rutB","Rut","rutC","Rut","rutD","Rut",
+  "rutE","Rut","rutF","Rut","rutG","Rut",
+
+  # Rhamnose utilization
+  "rhaA","Rha","rhaB","Rha","rhaD","Rha",
+  "rhaS","Rha","rhaR","Rha","rhaT","Rha",
+
+  # Formate hydrogenlyase / anaerobic respiration
+  "hycA","FHL-reg","hycB","FHL-reg", "hycC","FHL-reg",
+  "hycD","FHL-reg","hycE","FHL-reg", "hycF","FHL-reg",
+  "hycG","FHL-reg","hycH","FHL-reg", "hycI" , "FHL-reg", 
+
+  # Flagellar basal body
+  "flgA","Flagellar","flgB","Flagellar","flgC","Flagellar",
+  "flgD","Flagellar","flgE","Flagellar","flgF","Flagellar",
+  "flgG","Flagellar","flgH","Flagellar","flgI","Flagellar",
+  "flgJ","Flagellar","flgK","Flagellar","flgL","Flagellar",
+
+  # Flagellar motor/assembly
+  "fliA","Flagellar","fliC","Flagellar","fliD","Flagellar",
+  "fliE","Flagellar","fliF","Flagellar","fliG","Flagellar",
+  "fliH","Flagellar","fliI","Flagellar","fliJ","Flagellar",
+  "fliK","Flagellar","fliL","Flagellar","fliM","Flagellar",
+  "fliN","Flagellar","fliO","Flagellar","fliP","Flagellar",
+  "fliQ","Flagellar","fliR","Flagellar","fliS","Flagellar",
+  "fliT","Flagellar","fliZ","Flagellar",
+
+  # Chemotaxis
+  "cheA","Chemotaxis","cheB","Chemotaxis",
+  "cheR","Chemotaxis","cheW","Chemotaxis",
+  "cheY","Chemotaxis","cheZ","Chemotaxis",
+
+  # Phenylpropionate
+  "mhpA","Mhp",
+  "mhpB","Mhp",
+  "mhpC","Mhp",
+  "mhpD","Mhp",
+  "mhpE","Mhp",
+  "mhpF","Mhp"
+)
+
+```
+
+
+```{r operons}
+plot_df_operons <- all_genes_output %>%
+  left_join(interesting_operons, by = c("Query_Gene" = "gene"))
+
+operon_gene_df <- plot_df_operons %>%
+  filter(!is.na(operon)) %>%
+  group_by(Query_Gene, operon) %>%
+  summarise(
+    gene_mean_corr = mean(Mean_Correlation),
+    .groups = "drop"
+  )
+
+operon_summary <- operon_gene_df %>%
+  group_by(operon) %>%
+  summarise(
+    n_genes = n(),
+    median_corr = median(gene_mean_corr),
+    .groups = "drop"
+  )
+
+operon_list <- interesting_operons %>%
+  group_by(operon) %>%
+  summarise(genes = list(unique(gene))) %>%
+  deframe()
+
+compute_recovery <- function(hits,
+                             query_gene,
+                             operon_name,
+                             operon_list) {
+
+  ops <- operon_list[[operon_name]]
+
+  if (is.null(ops))
+    return(NA_real_)
+
+  targets <- setdiff(ops, query_gene)
+
+  if (length(targets) == 0)
+    return(NA_real_)
+
+  hits_vec <- strsplit(hits, ";\\s*")[[1]]
+
+  length(intersect(targets, hits_vec)) / length(targets)
+}
+
+plot_main_recovery <- plot_df_operons %>%
+  mutate(
+    recovery = pmap_dbl(
+      list(Top_Hits, Query_Gene, operon),
+      ~ compute_recovery(..1, ..2, ..3, operon_list)
+    )
+  )
+
+operon_residual <- operon_gene_df %>%
+  left_join(
+    operon_summary %>% select(operon, median_corr),
+    by = "operon"
+  ) %>%
+  mutate(
+    residual = gene_mean_corr - median_corr
+  ) %>%
+  group_by(operon) %>%
+  summarise(
+    mean_residual = mean(residual, na.rm = TRUE),
+    se = sd(residual, na.rm = TRUE) / sqrt(n()),
+    n = n(),
+    .groups = "drop"
+  )
+
+operon_labels <- operon_summary %>%
+  mutate(operon_label = paste0(operon, " (n=", n_genes, ")"))
+
+```
+
+
+```{r genomic-coords}
+gff <- import("data/genomic.gff")
+
+genes <- gff[gff$type == "gene"]
+
+gene_coords <- data.frame(
+  gene = ifelse(!is.na(mcols(genes)$gene),
+                mcols(genes)$gene,
+                as.character(genes$Name)),
+  start  = start(genes),
+  end    = end(genes),
+  strand = as.character(strand(genes)),
+  seqid  = as.character(seqnames(genes))
+)
+
+gene_coords <- gene_coords %>%
+  filter(!is.na(gene)) %>%
+  arrange(seqid, start)
+
+plot_coords <- gene_coords %>%
+  inner_join(gene_long, by = c("gene" = "Query_Gene"))
+
+plot_coords <- plot_coords %>% select(gene, start, end, strand, Mean_Correlation, seqid) 
+
+plot_coords_operons <- plot_coords %>% left_join(interesting_operons, by = "gene")
+
+plot_coords_operons <- as.data.frame(plot_coords_operons)
+
+```
+
+
+```{r gene-specific-tables}
+
+genes_of_interest <- c("fliD", "lacZ", "glnL", "murG", "sdhA", "lacZ", "cheW", "mhpB")
+
+fliD_corr <- read_csv("data/fliD_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(fliD_corr = Correlation_with_geneX) %>% distinct(Gene, fliD_corr)
+murG_corr <- read_csv("data/murG_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(murG_corr = Correlation_with_geneX)%>% distinct(Gene, murG_corr)
+sdhA_corr <- read_csv("data/sdhA_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(sdhA_corr = Correlation_with_geneX)%>% distinct(Gene, sdhA_corr)
+mhpB_corr <- read_csv("data/mhpB_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(mhpB_corr = Correlation_with_geneX)%>% distinct(Gene, mhpB_corr)
+glnL_corr <- read_csv("data/glnL_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(glnL_corr = Correlation_with_geneX)%>% distinct(Gene, glnL_corr)
+lacZ_corr <- read_csv("data/lacZ_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(lacZ_corr = Correlation_with_geneX)%>% distinct(Gene, lacZ_corr)
+cheW_corr <- read_csv("data/cheW_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(cheW_corr = Correlation_with_geneX)%>% distinct(Gene, cheW_corr)
+
+plot_coords_corr_known <- plot_coords_operons %>% distinct(gene, start, end, strand)  %>% 
+  left_join(fliD_corr, by = c("gene" = "Gene"))  %>% 
+  left_join(murG_corr, by = c("gene" = "Gene"))  %>% 
+  left_join(sdhA_corr, by = c("gene" = "Gene"))  %>% 
+  left_join(mhpB_corr, by = c("gene" = "Gene"))  %>% 
+  left_join(glnL_corr, by = c("gene" = "Gene"))  %>% 
+  left_join(lacZ_corr, by = c("gene" = "Gene")) %>% 
+  left_join(cheW_corr, by = c("gene" = "Gene")) %>%
+  mutate(forward = strand == "+")
+
+
+gene_order <- plot_coords_operons %>%
+  distinct(gene, start)
+
+plot_list <- list()
+df_list <- list()
+
+for(goi in genes_of_interest){
+  idx <- which(gene_order$gene == goi)
+
+genes_to_plot <- gene_order %>%
+  dplyr::slice(max(1, idx - 6):min(n(), idx + 6)) %>%
+  pull(gene)
+
+window_df <- plot_coords_corr_known %>%
+  filter(gene %in% genes_to_plot)
+
+corr_col <- paste0(goi,"_corr")
+
+window_df$track <- goi
+
+window_df <- window_df %>%
+  mutate(
+    plot_corr = .data[[corr_col]],
+    plot_corr = if_else(gene == goi, 1, plot_corr)
+  )
+  df_list[[goi]] <- window_df
+  
+}
+
+combined_df <- dplyr::bind_rows(df_list, .id = "plot")
+
+combined_df$track2 <- "track"
+
+p3d <- ggplot(combined_df) +
+  geom_gene_arrow(
+    aes(
+      xmin = start,
+      xmax = end,
+      y = track2,
+      fill = plot_corr,
+      forward = forward
+    ),
+    arrowhead_height = unit(14, "mm"),
+    arrowhead_width = unit(2, "mm"),
+    arrow_body_height = unit(15, "mm"),
+  ) +
+   facet_wrap(~plot, scales = "free", ncol = 1) +
+  geom_gene_label(
+  aes(
+    xmin = start,
+    xmax = end,
+    y = track2,
+    label = gene,
+    forward = forward
+  ), grow = TRUE,  height = unit(8, "mm") 
+)+
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    limits = c(-0.5, 1),
+    na.value = "grey80"
+  ) +
+  theme_genes()+
+  theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  panel.grid.x = element_blank(),
+  axis.line = element_blank(),
+  legend.position = "none",
+  strip.background = element_blank(),
+  strip.text = element_blank(),
+
+  plot.margin = margin(0, 0, 0, 0),
+  panel.spacing = unit(0, "lines")
+)
+```
+
+### Figure of Summary of GO Assignments and Mean Correlation 
+
+```{r p3, fig.width= 18, fig.height=18, include=TRUE }
+p3a <- plot_main_recovery %>%
+  mutate(operon_label = operon_labels$operon_label[match(operon, operon_labels$operon)]) %>%
+  ggplot(aes(reorder(operon_label, recovery, median), recovery, fill = operon)) +
+  geom_boxplot() +
+  coord_flip() +
+  theme_cowplot() +
+  theme(
+    legend.position = "none"
+  ) +
+  labs(x = "Operon", y = "Recovery")
+
+p3b <- operon_summary %>%
+  ggplot(aes(median_corr, n_genes, color = operon)) +
+  geom_point(size = 3) +
+  geom_smooth(method = "loess") +
+  theme_cowplot() +
+  theme(
+    legend.position = "none"
+  ) +
+  labs(
+    x = "Median Correlation",
+    y = "Number of Genes in Operon"
+  )
+
+p3c <- ggplot(
+  operon_residual,
+  aes(
+    x = reorder(operon, mean_residual),
+    y = mean_residual,
+    color = operon
+  )
+) +
+  geom_point(size = 4) +
+  geom_errorbar(
+    aes(
+      ymin = mean_residual - se,
+      ymax = mean_residual + se
+    ),
+    width = 0.2,
+    color = "black"
+  ) +
+  geom_hline(yintercept = 0.05, linetype = "dashed", alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = -0.05, linetype = "dashed", alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, linetype = "dotted", alpha = 0.8) +
+  coord_flip() +
+  theme_cowplot() +
+  theme(legend.position = "none") +
+  labs(
+    x = "Operon",
+    y = "Mean Residual Operon"
+  )
+
+
+p3bc <- plot_grid(
+  p3c, p3b,
+  ncol = 1, 
+  labels = c("B", "C")
+)
+
+p3abc <- plot_grid(
+  p3a, p3bc,
+  labels = c("A", ""), 
+  rel_widths = c(1.25, 0.75)
+)
+
+
+p3_final <- plot_grid(
+  p3abc, p3d,
+  labels = c("", "D"),
+  ncol = 1,
+  rel_heights = c(1.25, 0.75)
+)
+
+p3_final
+
+#cor.test(
+#  operon_summary$n_genes,
+#  operon_summary$median_corr
+#)
+
+#cor.test(
+#  operon_summary$n_genes,
+#  operon_summary$median_corr,
+#  method = "spearman"
+#)
+```
+
+Operon membership count was moderately positively associated with median coexpression (r = 0.37, p = 0.076), which did not reach conventional significance. However, spearman rank correlation size was significant (ρ = 0.64, p = 7.8 × 10⁻4), indicating that operon size explains some of the variation in coexpression among operons. Interpretation of operon-level size effects should be made cautiously, as the operon recovery dataset contains relatively few large operons and only a single operon with more than 15 genes. Operon size alone is not the only driver of coexpression structure. These analysis demonstrates that top-ranked coexpression neighbors partially recover known operon structure. In many cases, genes within the same operon are enriched among the highest correlated partners, indicating that transcriptional coupling is detectable through the correlation framework.  Because operon membership was not incorporated into the correlation calculations, the enrichment of operon partners among highly ranked neighbors provides an independent validation that biologically meaningful transcriptional structure is captured by the coexpression framework. Strenthening the idea that the use of this tool is likely to uncover biological signal when queried by an uncharacterized gene. 
+
+However, recovery is incomplete and variable across operons. Some operons show strong internal coherence, while others display diluted signal, likely reflecting:
+
+  - condition-dependent operon usage
+  - indirect co-regulation across regulons
+  - fragmentation of operon expression under heterogeneous conditions
+
+Specifically, operons such as the flagellar operon, divison/cell wall cluster, and the gal operon all contain multiple promoters, terminators, and modulators of their transcriptional activity. Such regulatory complexity may contribute to reduced coexpression among genes within these operons, potentially explaining the lower recovery observed for some transcriptional units. Overall, these results indicate that coexpression captures operon structure as a noisy but meaningful signal, rather than a strict reconstruction of transcriptional units.
+
+```{r unk_ops, fig.width= 18, fig.height=12, include=TRUE }
+
+yshB_corr <- read_csv("data/yshB_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(yshB_corr = Correlation_with_geneX) %>% distinct(Gene, yshB_corr)
+yaiL_corr <- read_csv("data/yshB_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(yaiL_corr = Correlation_with_geneX)%>% distinct(Gene, yaiL_corr)
+yccJ_corr <- read_csv("data/yccJ_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(yccJ_corr = Correlation_with_geneX)%>% distinct(Gene, yccJ_corr)
+ytcA_corr <- read_csv("data/ytcA_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(ytcA_corr = Correlation_with_geneX)%>% distinct(Gene, ytcA_corr)
+ypdK_corr <- read_csv("data/ypdK_correlations_GO.csv")%>% select(Correlation_with_geneX, Gene) %>%
+  dplyr::rename(ypdK_corr = Correlation_with_geneX)%>% distinct(Gene, ypdK_corr)
+
+plot_coords_corr_unk <- plot_coords_operons %>% distinct(gene, start, end, strand)  %>% 
+  left_join(yshB_corr, by = c("gene" = "Gene"))  %>% 
+  left_join(yaiL_corr, by = c("gene" = "Gene"))  %>% 
+  left_join(yccJ_corr, by = c("gene" = "Gene"))  %>% 
+  left_join(ytcA_corr, by = c("gene" = "Gene"))  %>% 
+  left_join(ypdK_corr, by = c("gene" = "Gene"))  %>% 
+  mutate(forward = strand == "+")
+
+genes_of_interest <- c("yshB", "yaiL", "yccJ", "ytcA", "ypdK")
+
+gene_order <- plot_coords_operons %>%
+  distinct(gene, start)
+
+plot_list <- list()
+df_list <- list()
+
+for(goi in genes_of_interest){
+  idx <- which(gene_order$gene == goi)
+
+genes_to_plot <- gene_order %>%
+  dplyr::slice(max(1, idx - 8):min(n(), idx + 8)) %>%
+  pull(gene)
+
+window_df <- plot_coords_corr_unk %>%
+  filter(gene %in% genes_to_plot)
+
+corr_col <- paste0(goi,"_corr")
+
+window_df$track <- goi
+
+window_df <- window_df %>%
+  mutate(
+    plot_corr = .data[[corr_col]],
+    plot_corr = if_else(gene == goi, 1, plot_corr)
+  )
+  df_list[[goi]] <- window_df
+  
+}
+
+combined_df <- dplyr::bind_rows(df_list, .id = "plot")
+
+combined_df$track2 <- "track"
+
+combined_df$plot <- factor(
+  combined_df$plot,
+  levels = c("yaiL", "yshB", "ypdK", "yccj", "ytcA")
+)
+
+p4a <- ggplot(combined_df) +
+  geom_gene_arrow(
+    aes(
+      xmin = start,
+      xmax = end,
+      y = track2,
+      fill = plot_corr,
+      forward = forward
+    ),
+    arrowhead_height = unit(14, "mm"),
+    arrowhead_width = unit(2, "mm"),
+    arrow_body_height = unit(15, "mm"),
+  ) +
+   facet_wrap(~plot, scales = "free", ncol = 1) +
+  geom_gene_label(
+  aes(
+    xmin = start,
+    xmax = end,
+    y = track2,
+    label = gene,
+    forward = forward
+  ), grow = TRUE,  height = unit(8, "mm") 
+)+
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    limits = c(-0.5, 1),
+    na.value = "grey80"
+  ) +
+  theme_genes()+
+  theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  panel.grid.x = element_blank(),
+  axis.line = element_blank(),
+  legend.position = "none",
+  strip.background = element_blank(),
+  strip.text = element_blank(),
+
+  plot.margin = margin(0, 0, 0, 0),
+  panel.spacing = unit(0, "lines")
+)
+
+plot_grid(p4a)
+
+```
+
+
+```{r fliD-operon}
+genes_of_interest <- c("fliD")
+
+gene_order <- plot_coords_operons %>%
+  distinct(gene, start)
+
+plot_list <- list()
+df_list <- list()
+
+for(goi in genes_of_interest){
+  idx <- which(gene_order$gene == goi)
+
+genes_to_plot <- gene_order %>%
+  dplyr::slice(max(1, idx - 10):min(n(), idx + 25)) %>%
+  pull(gene)
+
+window_df <- plot_coords_corr_known %>%
+  filter(gene %in% genes_to_plot)
+
+corr_col <- paste0(goi,"_corr")
+
+window_df$track <- goi
+
+window_df <- window_df %>%
+  mutate(
+    plot_corr = .data[[corr_col]],
+    plot_corr = if_else(gene == goi, 1, plot_corr)
+  )
+  df_list[[goi]] <- window_df
+  
+}
+
+combined_df <- dplyr::bind_rows(df_list, .id = "plot")
+
+combined_df$track2 <- "track"
+
+p4a <- ggplot(combined_df) +
+  geom_gene_arrow(
+    aes(
+      xmin = start,
+      xmax = end,
+      y = track2,
+      fill = plot_corr,
+      forward = forward
+    ),
+    arrowhead_height = unit(14, "mm"),
+    arrowhead_width = unit(2, "mm"),
+    arrow_body_height = unit(15, "mm"),
+  ) +
+   facet_wrap(~plot, scales = "free", ncol = 1) +
+  geom_gene_label(
+  aes(
+    xmin = start,
+    xmax = end,
+    y = track2,
+    label = gene
+  ), grow = TRUE,  height = unit(8, "mm") 
+)+
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    limits = c(-0.5, 1),
+    na.value = "grey80"
+  ) +
+  theme_genes()+
+  theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.line = element_blank(),
+  strip.background = element_blank(),
+  strip.text = element_blank(),
+
+  plot.margin = margin(0, 0, 0, 0),
+  panel.spacing = unit(0, "lines")
+)
+
+plot_grid(p4a)
+
+```

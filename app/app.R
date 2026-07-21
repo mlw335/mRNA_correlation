@@ -111,62 +111,184 @@ go_df <- tibble(go_term = unique_GO) %>%
   filter(!is.na(go_term), go_term != "") %>%
   mutate(
     go_term = str_remove(go_term, "\\s*\\[GO:\\d+\\]$"),
+    
     go_group = case_when(
       
-      # --- central carbon metabolism ---
-      str_detect(go_term, "glycolysis|gluconeogenesis|pentose phosphate|pentose-phosphate|TCA|tricarboxylic acid|fermentation|carbon fixation|pyruvate|acetate|acetyl-CoA|propionate|succinyl-CoA|2-oxoglutarate|glyoxylate|succinate|citrate|malate|fumarate|lactate|ethanol|acetaldehyde|glycerol|generation of precursor metabolites") ~ "Central carbon metabolism",
+      # =========================
+      # CARBON METABOLISM 
+      # =========================
       
-      # --- secondary carbon utilization ---
-      str_detect(go_term, "carbon utilization|glucose|galactose|ribose|fucose|arabinose|maltose|lactose|mannitol|fructose|carbohydrate|hexose|monosaccharide|oligosaccharide|polysaccharide|glucarate|glucuronate|galactarate|galactonate|galacturonate|trehalose|cellobiose|xylan|pectin|gluconate|glucan|glycogen|mannose|rhamnose|sorbitol|melibiose|inositol|allantoin|ascorbic acid|tartrate|galactitol|allose|glycolate|ketone|carboxylic acid|organic acid|dicarboxylic acid|monocarboxylic acid|aldonic acid|organic phosphonate|aminophosphonate|N-acetylglucosamine|N-acetylmuramic acid|N-acetylmannosamine|N-acetylneuraminate|diacetylchitobiose|chitin|xylose|lyxose|xylulose|indole|methylglyoxal|formaldehyde|oxalate|phenylpropanoid|bile acid|carnitine|ureide|acetoacetic acid|butanol|dimethyl sulfoxide|amino sugar|cyanate") ~ "Secondary carbon utilization",
+      str_detect(go_term, "glycolysis|gluconeogenesis|glycolytic") ~ "Central carbon: glycolysis/gluconeogenesis",
       
-      # --- nucleotide metabolism ---
-      str_detect(go_term, "purine|pyrimidine|nucleotide|nucleoside|nucleobase|adenosine|guanosine|inosine|xanthosine|cytosine|uracil|uridine|thymine|thymidine|adenine|guanine|hypoxanthine|UMP|GMP|IMP|XMP|CMP|TMP|TTP|dATP|dTTP|UTP|CTP|ADP|dTMP|salvage|deoxycytidine|UDP|TDP|GTP|AMP") ~ "Nucleotide metabolism",
+      str_detect(go_term, "pentose phosphate") ~ "Central carbon: pentose phosphate pathway",
       
-      # --- protein homeostasis ---
-      str_detect(go_term, "protein catabolic|polymerization|stabilization|destabilization|folding|refolding|assembly|targeting|insertion|secretion|trimerization|tetramerization|oligomerization|lipoylation|glycosylation|methylation|adenylylation|proteolysis|peptide catabolic|peptide metabolic|chaperone|zymogen activation|oligomerization|trimerization|tetramerization|hexamerization|protein complex assembly|protein processing|signal peptide processing|glycosylation|lipoylation|protein repair|protein maturation|protein unfolding|protein unfolding|protein quality|protein autoprocessing|protein localization|denaturation|unfolded protein|protein de") ~ "Protein homeostasis",
+      str_detect(go_term, "TCA|tricarboxylic acid|citrate cycle") ~ "Central carbon: TCA cycle",
       
-      # --- energy metabolism ---
-      str_detect(go_term, "electron transport chain|respiration|oxidative phosphorylation|ATP synthesis|hydrogen metabolic process|respiratory chain|generation of precursor metabolites and energy") ~ "Energy metabolism",
+      str_detect(go_term, "fermentation|ethanol|lactate|acetate") ~ "Central carbon: fermentation",
       
-      # --- cofactor / vitamin metabolism ---
-      str_detect(go_term, "heme|porphyrin|cytochrome|quinone|ubiquinone|menaquinone|NAD|NADP|FAD|FMN|lipoate|molybdopterin|vitamin|cofactor|prosthetic group|siderophore|enterobactin|thiamine|folic acid|tetrahydrofolate|dihydrofolate|pteridine|cobalamin|riboflavin|pyridox|coenzyme A|pantothenate|isoprenoid|terpenoid|polyprenol|ferredoxin|glutathione") ~ "Cofactor / vitamin metabolism",
+      str_detect(go_term, "pyruvate|acetyl-CoA|oxaloacetate|succinate|fumarate") ~ "Central carbon: intermediates",
       
-      # --- ion / homeostasis ---
-      str_detect(go_term, "magnesium|iron|zinc|copper|manganese|nickel|cadmium|cobalt|selenium|molybdate|potassium|phosphate|phosphorus|sulfate|sulfur compound|ion homeostasis|membrane potential|cation|homeostasis") ~ "Ion homeostasis / ion response",
-      
-      # --- transport ---
-      str_detect(go_term, "transport|import|export") ~ "Transport",
-      
-      # --- transcription ---
-      str_detect(go_term, "transcription|gene expression") ~ "Transcription",
-      
-      # --- DNA maintenance ---
-      str_detect(go_term, "DNA replication|DNA repair|recombination|translesion|SOS response|chromosome|DNA damage|DNA integration|transposition|transformation|base-excision repair|double-strand break repair|interstrand cross-link repair|mismatch|plasmid partitioning|sister chromatid cohesion|DNA protection|CRISPR|DNA|photoreactive repair|methylation|plasmid") ~ "DNA maintenance",
-      
-      # --- translation / RNA biology ---
-      str_detect(go_term, "translation|ribosome|ribosomal|tRNA|rRNA|mRNA|RNA processing|RNA modification|RNA methylation|RNA capping|ncRNA|pseudouridine|endoribonuclease|RNA metabolic process|RNA") ~ "Translation / RNA biology",
-      
-      # --- motility ---
-      str_detect(go_term, "flagell|chemotaxis|motility|aerotaxis|thermotaxis|pilus") ~ "Motility / taxis",
-      
-      # --- cell envelope ---
-      str_detect(go_term, "cell wall|peptidoglycan|outer membrane|lipopolysaccharide|capsule|membrane assembly|membrane organization|periplasmic space organization|lipoprotein|cellulose|biofilm|cell shape|cell morphogenesis|cell growth|cell size|division|septum|cytokinesis|curli|amyloid fibril|O antigen|common antigen|adhesion|cell killing|autolysis|ring assembly|growth|osmosensory|cytoskeleton|invagination|cell tip|colanic acid") ~ "Cell envelope",
-      
-      # --- lipid metabolism ---
-      str_detect(go_term, "fatty acid|lipid|phospholipid|cardiolipin|lipid A|phosphatid|acyl-CoA|butyryl-CoA|poly-hydroxybutyrate|steroid") ~ "Lipid metabolism",
-      
-      # --- amino acid metabolism ---
-      str_detect(go_term, "amino acid|arginine|lysine|methionine|threonine|serine|glycine|tryptophan|tyrosine|histidine|cysteine|glutamate|aspartate|proline|alanine|valine|leucine|isoleucine|phenylalanine|ornithine|putrescine|spermidine|spermine|taurine|GABA|asparagine|glutamine|amine metabolic|biogenic amine|sulfur utilization|gamma-aminobutyric acid|nitrate|nitrite|ammonia|urea|amine|nitrogen utilization") ~ "Amino acid metabolism",
+      str_detect(go_term, "carbon fixation") ~ "Central carbon: carbon fixation",
       
       
-      # --- stress / response ---
-      str_detect(go_term, "stress|response to|detoxification|starvation|oxidative|heat|cold|temperature|osmotic|hypotonic|hyperosmotic|acidic pH|alkaline pH|radiation|antibiotic|xenobiotic|toxic substance|nitric oxide|hydrogen peroxide|superoxide|defense|phage shock|dormancy|programmed cell death|symbiotic interaction|virus|viral|toxin|stringent") ~ "Stress / environmental response",
+      # =========================
+      # SECONDARY CARBON
+      # =========================
       
-      # --- signaling ---
-      str_detect(go_term, "signal transduction|phosphorelay|phosphorylation|autophosphorylation|cAMP|quorum sensing|sensory|detection") ~ "Signal transduction / signaling",
+      str_detect(go_term, "secondary carbon|carbohydrate utilization|carbohydrate") ~ "Carbon utilization: general",
+      
+      str_detect(go_term, "glucose|galactose|fructose|mannose|ribose|xylose|arabinose|glycerol") ~ "Carbon utilization: sugars",
+      
+      str_detect(go_term, "cellobiose|trehalose|maltose|lactose") ~ "Carbon utilization: disaccharides",
+      
+      str_detect(go_term, "glycogen|starch|xylan|pectin|chitin") ~ "Carbon utilization: polysaccharides",
+      
+      str_detect(go_term, "organic acid|carboxylic acid|dicarboxylic") ~ "Carbon utilization: organic acids",
+      
+      str_detect(go_term, "N-acetyl|amino sugar|glucuronate|galacturonate") ~ "Carbon utilization: sugar derivatives",
       
       
-      TRUE ~ "Other"
+      # =========================
+      # NUCLEOTIDES
+      # =========================
+      
+      str_detect(go_term, "purine|pyrimidine|nucleotide|nucleoside") ~ "Nucleotide metabolism",
+      
+      str_detect(go_term, "salvage|de novo") ~ "Nucleotide metabolism: pathway type",
+      
+      
+      # =========================
+      # AMINO ACIDS
+      # =========================
+      
+      str_detect(go_term, "amino acid|arginine|lysine|methionine|leucine|isoleucine|valine") ~ "Amino acid metabolism: branched-chain",
+      
+      str_detect(go_term, "tryptophan|tyrosine|phenylalanine") ~ "Amino acid metabolism: aromatic",
+      
+      str_detect(go_term, "glutamate|aspartate|glutamine|asparagine") ~ "Amino acid metabolism: acidic",
+      
+      str_detect(go_term, "glycine|serine|alanine") ~ "Amino acid metabolism: small amino acids",
+      
+      str_detect(go_term, "putrescine|spermidine|polyamine") ~ "Amino acid metabolism: polyamines",
+      
+      
+      # =========================
+      # LIPIDS 
+      # =========================
+      
+      str_detect(go_term, "fatty acid biosynthesis|acyl-CoA") ~ "Lipid metabolism: synthesis",
+      
+      str_detect(go_term, "phospholipid|cardiolipin|phosphatid|lipid metabolic") ~ "Lipid metabolism: membrane lipids",
+      
+      str_detect(go_term, "lipid A|lipopolysaccharide") ~ "Lipid metabolism: LPS",
+      
+      str_detect(go_term, "beta-oxidation|fatty acid degradation") ~ "Lipid metabolism: degradation",
+      
+      str_detect(go_term, "fatty acid|lipid") ~ "Lipid metabolism: other",
+      
+      
+      # =========================
+      # MEMBRANE / ENVELOPE 
+      # =========================
+      
+      str_detect(go_term, "peptidoglycan|cell wall|cell shape") ~ "Cell envelope: peptidoglycan",
+      
+      str_detect(go_term, "outer membrane|periplasm|cell envelope") ~ "Cell envelope: outer membrane",
+      
+      str_detect(go_term, "capsule|biofilm|adhesion|colanic acid|pilus|O antigen|slime") ~ "Cell envelope: surface structures",
+      
+      str_detect(go_term, "cell division|cytokinesis|septum|cell growth") ~ "Cell envelope: division machinery",
+      
+      
+      # =========================
+      # ENERGY
+      # =========================
+      
+      str_detect(go_term, "respiration|electron transport|oxidative phosphorylation") ~ "Energy metabolism: respiration",
+      
+      str_detect(go_term, "ATP synthesis|ATPase") ~ "Energy metabolism: ATP generation",
+      
+      
+      # =========================
+      # COFACTORS
+      # =========================
+      
+      str_detect(go_term, "heme|cytochrome|quinone|NAD|FAD|FMN") ~ "Cofactors: redox",
+      
+      str_detect(go_term, "vitamin|coenzyme|folate|biotin|thiamine|folic acid|molybdopterin|riboflavin|cobalamin|pyridoxine") ~ "Cofactors: vitamins",
+      
+      str_detect(go_term, "siderophore|iron|molybdate|metal| ion|copper|selenium|potassium|magnesium|zinc") ~ "Cofactors: metal handling",
+      
+      
+      # =========================
+      # DNA / RNA
+      # =========================
+      
+      str_detect(go_term, "DNA replication|chromosome|lagging|leading") ~ "DNA: replication",
+      
+      str_detect(go_term, "DNA repair|recombination|SOS|DNA damage|mismatch repair|base-excision|double-strand break") ~ "DNA: repair",
+      
+      str_detect(go_term, "transcription|RNA processing") ~ "RNA: transcription",
+      
+      str_detect(go_term, "ribosom|tRNA|rRNA|translation") ~ "RNA: translation",
+      str_detect(go_term, "transposition|integration|provirus|viral genome|CRISPR|restriction-modification") ~ "DNA: mobile elements",
+      
+      
+      # =========================
+      # STRESS (split)
+      # =========================
+      
+      str_detect(go_term, "oxidative|superoxide|peroxide|redox") ~ "Stress: oxidative",
+      
+      str_detect(go_term, "heat|cold|temperature") ~ "Stress: thermal",
+      
+      str_detect(go_term, "osmotic") ~ "Stress: osmotic",
+      
+      str_detect(go_term, "antibiotic|toxic|detox") ~ "Stress: chemical",
+      
+      str_detect(go_term, "response to|response") ~ "Stress: general",
+      
+      
+      # =========================
+      # SIGNALING 
+      # =========================
+      
+      str_detect(go_term, "two-component|response regulator|sensor kinase") ~ "Signaling: two-component systems",
+      
+      str_detect(go_term, "quorum sensing|c-di-GMP|cAMP") ~ "Signaling: small molecules",
+      
+      str_detect(go_term, "phosphorelay|autophosphorylation") ~ "Signaling: phosphorylation systems",
+      
+      str_detect(go_term, "signal transduction| regulation of") ~ "Signaling: general",
+      
+      
+      # =========================
+      # MOTILITY
+      # =========================
+      
+      str_detect(go_term, "flagell|chemotaxis|motility") ~ "Motility: flagellar systems",
+      
+      
+      # =========================
+      # PROTEIN HOMEOSTASIS
+      # =========================
+      
+      str_detect(go_term,
+                 "proteolysis|protein folding|protein refolding|protein maturation|protein repair|protein stabilization|protein unfolding|protein transport|protein secretion|Sec complex|protein insertion") ~ "Protein homeostasis",
+      
+      # =========================
+      # TRANSPORT
+      # =========================
+      
+      str_detect(go_term,
+                 "transmembrane transport|transporter|uptake|export|efflux|import|transport") ~ "Transport",
+      
+      
+      # =========================
+      # DEFAULT
+      # =========================
+      
+      TRUE ~ "Other / unclassified"
     )
   )
 
@@ -865,7 +987,7 @@ server <- function(input, output, session) {
           
           top_gene_names <- res$table %>%
             distinct(Gene, .keep_all = TRUE) %>%
-            slice_head(n = 20) %>%
+            slice_head(n = 50) %>%
             pull(Gene)
           
           summary_tables[[g]] <- tibble(
